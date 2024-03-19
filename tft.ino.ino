@@ -43,8 +43,38 @@ WidgetTerminal terminal(V10);
 TFT_eSPI tft = TFT_eSPI();         // Invoke custom library
 TFT_eSprite img = TFT_eSprite(&tft);
 TFT_eSprite img2 = TFT_eSprite(&tft);
+TFT_eSprite imgOrr = TFT_eSprite(&tft);  // Sprite class
+
+#define sunX tft.width()/2
+#define sunY tft.height()/2
+
+uint16_t orb_inc;
+uint16_t planet_r;
+
+#include <stdio.h>
+#include "astronomy.h"
+#define TIME_TEXT_BYTES  25
+
+astro_time_t astro_time;
+
+uint16_t grey;
+
+static const astro_body_t body[] = {
+  BODY_SUN, BODY_MERCURY, BODY_VENUS, BODY_EARTH, BODY_MARS,
+  BODY_JUPITER, BODY_SATURN, BODY_URANUS, BODY_NEPTUNE
+};
+
+static const uint16_t bodyColour[] = {
+  TFT_YELLOW, TFT_DARKGREY, TFT_ORANGE, TFT_BLUE, TFT_RED,
+  TFT_GOLD, TFT_BROWN, TFT_DARKCYAN, TFT_CYAN
+};
+
 //TFT_eSprite img3 = TFT_eSprite(&tft);
 #define LED_PIN 32
+
+int page = 1;
+uint16_t t_x = 0, t_y = 0; // To store the touch coordinates
+uint16_t oldt_x = 0, oldt_y = 0; // To store the touch coordinates
 
 
 #define every(interval) \
@@ -335,14 +365,96 @@ String windDirection(int temp_wind_deg)   //Source http://snowfence.umn.edu/Comp
   }
 }
 
-void prepDisplay(); {
+// =========================================================================
+// Get coordinates of end of a vector, pivot at x,y, length r, angle a
+// =========================================================================
+// Coordinates are returned to caller via the xp and yp pointers
+#define DEG2RAD 0.0174532925
+void getCoord(int x, int y, int *xp, int *yp, int r, float a)
+{
+  float sx1 = cos( -a * DEG2RAD );
+  float sy1 = sin( -a * DEG2RAD );
+  *xp =  sx1 * r + x;
+  *yp =  sy1 * r + y;
+}
+
+// =========================================================================
+// Convert astronomical time to UTC and display
+// =========================================================================
+void showTime(astro_time_t time)
+{
+    astro_status_t status;
+    char text[TIME_TEXT_BYTES];
+
+    status = Astronomy_FormatTime(time, TIME_FORMAT_SECOND, text, sizeof(text));
+    if (status != ASTRO_SUCCESS)
+    {
+        fprintf(stderr, "\nFATAL(PrintTime): status %d\n", status);
+        exit(1);
+    }
+    
+    tft.drawString(text, 10, 10, 2);
+}
+
+// =========================================================================
+// Plot planet positions as an Orrery
+// =========================================================================
+int plot_planets(void)
+{
+  astro_angle_result_t ang;
+
+  int i;
+  int num_bodies = sizeof(body) / sizeof(body[0]);
+
+  // i initialised to 1 so Sun is skipped
+  for (i = 1; i < num_bodies; ++i)
+  {
+    ang = Astronomy_EclipticLongitude(body[i], astro_time);
+
+    int x1 = 0; // getCoord() will update these
+    int y1 = 0;
+
+    getCoord(0, 0, &x1, &y1, i * 28, ang.angle); // Get x1 ,y1
+
+    imgOrr.fillSprite(TFT_TRANSPARENT);
+    imgOrr.fillCircle(9, 9, 9, TFT_BLACK);
+    imgOrr.drawCircle(9 - x1, 9 - y1, i * 28, grey);
+    imgOrr.fillCircle(9, 9, 5, bodyColour[i]);
+    imgOrr.pushSprite(sunX + x1 - 9, sunY + y1 - 9, TFT_TRANSPARENT);
+
+    if (body[i] == BODY_EARTH)
+    {
+      astro_angle_result_t mang = Astronomy_LongitudeFromSun(BODY_MOON, astro_time);
+
+      int xm = 0;
+      int ym = 0;
+
+      getCoord(x1, y1, &xm, &ym, 15, 180 + ang.angle + mang.angle); // Get x1 ,y1
+
+      imgOrr.fillSprite(TFT_TRANSPARENT);
+      imgOrr.fillCircle(9, 9, 7, TFT_BLACK);
+      imgOrr.drawCircle(9 - xm, 9 - ym, i * 28, grey);
+      imgOrr.fillCircle(9, 9, 2, TFT_WHITE);
+      imgOrr.pushSprite(sunX + xm - 9, sunY + ym - 9, TFT_TRANSPARENT);
+    }
+  }
+
+  return 0;
+}
+
+void prepDisplay() {
   tft.fillScreen(TFT_BLACK);
   TJpgDec.drawFsJpg(0, 0, "/ui.jpg");
 }
 
+void prepDisplay2() {
+  tft.fillScreen(TFT_BLACK);
+  TJpgDec.drawFsJpg(0, 0, "/pg2.jpg");
+}
+
 void doDisplay()
 {
-  //float dewpoint = bridgetemp - ((100 - bridgehum)/5); //calculate dewpoint
+
   //float pm25in, pm25out, bridgetemp, bridgehum, windspeed, winddir, windchill, windgust, humidex, bridgeco2, bridgeIrms, watts, kw, tempSHT, humSHT, co2SCD;
 
   String tempstring = String(tempSHT) + "°C";
@@ -380,6 +492,42 @@ void doDisplay()
   img2.drawString(downco2string, 73, 192);
   img2.drawString(powerstring, 73, 231);
   img2.pushSprite(155, 0);
+
+
+}
+
+void doDisplay2(){
+
+  tft.setCursor(115,267);
+  tft.print("My Temp: ");
+  tft.print(temp);
+  tft.println(" C");
+  tft.setCursor(115,287);
+  tft.print("My Hum: ");
+  tft.print(hum);
+  tft.println("%");
+
+}
+
+void prepOrrery() {
+  tft.fillScreen(TFT_BLACK);
+  astro_time = Astronomy_MakeTime(2020, 10, 16, 19, 31, 0) ;
+  tft.fillCircle(sunX, sunY, 10, TFT_YELLOW);
+
+  // i initialised to 1 so Sun is skipped
+  for (int i = 1; i < sizeof(body) / sizeof(body[0]); ++i)
+  {
+    tft.drawCircle(sunX, sunY, i * 28, grey);
+  }
+}
+
+void doOrrery(){
+  plot_planets();
+  showTime(astro_time);
+
+  // Add time increment (more than 0.6 days will lead to stray pixel on screen
+  // due to the way previous object images are erased)
+  astro_time = Astronomy_AddDays(astro_time, 0.25); // 0.25 day (6 hour) increment
 }
 
 void setup()
@@ -403,18 +551,23 @@ void setup()
   touch_calibrate();
   tft.setTextColor(0xFFFF, 0x0000);
   tft.fillScreen(TFT_BLACK);
-  tft.setCursor(0, 0);
+  tft.setCursor(10, 10);
   tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
   tft.setTextWrap(true); // Wrap on width
+  tft.setTextFont(2);
+  tft.setTextSize(1);
   tft.print("Connecting...");
+  tft.setCursor(10, 20);
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
       while (WiFi.status() != WL_CONNECTED) {
-        delay(500);
+        delay(250);
         tft.print(".");
       } 
-
+  tft.fillScreen(TFT_BLACK);
+  tft.setCursor(10, 10);
+  tft.print("Connected!");
   tft.setTextWrap(false); // Wrap on width
   img.setColorDepth(16); 
   img2.setColorDepth(16); 
@@ -438,7 +591,7 @@ void setup()
   // The decoder must be given the exact name of the rendering function above
   TJpgDec.setCallback(tft_output);
 
-  prepDisplay();
+  
 
   Serial.println("SHT31 test");
   if (! sht31.begin(0x44)) {   // Set to 0x45 for alternate i2c addr
@@ -450,7 +603,7 @@ void setup()
   temp = sht31.readTemperature();
   hum = sht31.readHumidity();
 
-  uint16_t t_x = 0, t_y = 0; // To store the touch coordinates
+  //uint16_t t_x = 0, t_y = 0; // To store the touch coordinates
 
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
@@ -460,11 +613,9 @@ void setup()
   AsyncElegantOTA.begin(&server);    // Start ElegantOTA
   server.begin();
   Serial.println("HTTP server started");
-  delay(250);
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
   Blynk.config(auth, IPAddress(192, 168, 50, 197), 8080);
   Blynk.connect();
-  delay(250);
   struct tm timeinfo;
   getLocalTime(&timeinfo);
   hours = timeinfo.tm_hour;
@@ -478,42 +629,95 @@ void setup()
   printLocalTime();
   terminal.flush();
   
-  img.loadFont(AA_FONT_16);
+  img.loadFont(AA_FONT_20);
   img.createSprite(73, 320);
   img.setTextDatum(TR_DATUM);     
   img.setTextColor(TFT_WHITE, TFT_BLACK, true); 
 
-  img2.loadFont(AA_FONT_16);
+  img2.loadFont(AA_FONT_20);
   img2.createSprite(73, 263);
   img2.setTextDatum(TR_DATUM);     
   img2.setTextColor(TFT_WHITE, TFT_BLACK, true); 
+  
+  imgOrr.createSprite(19, 19);
+  grey = tft.color565(30, 30, 30);
+
+  prepDisplay();
+  doDisplay();
 }
 
 void loop()
 {
   Blynk.run();
-uint16_t t_x = 0, t_y = 0; // To store the touch coordinates
-
-  // Pressed will be set true is there is a valid touch on the screen
   bool pressed = tft.getTouch(&t_x, &t_y);
   if (pressed){
+    tft.fillSmoothCircle(t_x, t_y, 4, TFT_YELLOW, TFT_BLACK);
     every(250){
-      temp = sht31.readTemperature();
-     hum = sht31.readHumidity();
+      Serial.print(t_x);
+      Serial.print(",");
+      Serial.println(t_y);
     }
+
+
+    if (page == 3) {
+        page = 1;
+        prepDisplay();
+        doDisplay();
+    }
+    if (page == 2) {
+      if ((t_x > 31) && (t_y > 227) && (t_x < 100) && (t_y < 285)){ //BACK button
+        delay(100);
+        page = 1;
+        prepDisplay();
+        doDisplay();
+      }
+      if ((t_x > 30) && (t_y > 30) && (t_x < 100) && (t_y < 87)){ //BRIGHTNESS DOWN button
+        delay(250);
+        brightness -= 16;
+        if (brightness < 1) {brightness = 1;}
+        if (brightness > 255) {brightness = 255;}
+        analogWrite(LED_PIN,brightness);
+      }
+      if ((t_x > 137) && (t_y > 30) && (t_x < 205) && (t_y < 87)){ //BRIGHTNESS UP button
+        delay(250);
+        brightness += 16;
+        if (brightness < 1) {brightness = 1;}
+        if (brightness > 255) {brightness = 255;}
+        analogWrite(LED_PIN,brightness);
+      }
+      if ((t_x > 79) && (t_y > 116) && (t_x < 157) && (t_y < 190)){ //ORRERY  button
+        delay(500);
+        page = 3;
+        
+        prepOrrery();
+        doOrrery();
+      }
+    }
+    if (page == 1) { //MAIN display
+      if ((t_x > 130) && (t_y > 268) && (t_x < 222) && (t_y < 300)){ //SETTINGS button
+        delay(100);
+        page = 2;
+        prepDisplay2();
+        doDisplay2();
+      }
+    }
+
   }
+
+  // Pressed will be set true is there is a valid touch on the screen
+
 
   every(3000){
-        temp = sht31.readTemperature();
-     hum = sht31.readHumidity();  
-     doDisplay();
+    if (page == 1) {doDisplay();}
+    if (page == 2) {doDisplay2();}
   }
+  if (page == 3) {doOrrery();}
 
-
-
-      delay(10); // UI debouncing
-
+  every(60000){
+    temp = sht31.readTemperature();
+    hum = sht31.readHumidity();  
+  }
+  delay(10); // UI debouncing
 }
-
 
 
