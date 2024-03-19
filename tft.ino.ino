@@ -18,6 +18,10 @@
 #include <AsyncElegantOTA.h>
 #include "time.h"
 
+#define VERSION 1.01
+
+String titleLine = "***INDIANA v" + String(VERSION) + "***";
+
 const char* ssid = "mikesnet";
 const char* password = "springchicken";
 
@@ -208,7 +212,7 @@ void touch_calibrate()
    float temp;
   float hum; 
 
-  void printLocalTime() {
+void printLocalTime() {
   time_t rawtime;
   struct tm* timeinfo;
   time(&rawtime);
@@ -386,7 +390,7 @@ void showTime(astro_time_t time)
     astro_status_t status;
     char text[TIME_TEXT_BYTES];
 
-    status = Astronomy_FormatTime(time, TIME_FORMAT_SECOND, text, sizeof(text));
+    status = Astronomy_FormatTime(time, TIME_FORMAT_DAY, text, sizeof(text));
     if (status != ASTRO_SUCCESS)
     {
         fprintf(stderr, "\nFATAL(PrintTime): status %d\n", status);
@@ -414,12 +418,12 @@ int plot_planets(void)
     int x1 = 0; // getCoord() will update these
     int y1 = 0;
 
-    getCoord(0, 0, &x1, &y1, i * 28, ang.angle); // Get x1 ,y1
+    getCoord(0, 0, &x1, &y1, i * 14, ang.angle); // Get x1 ,y1
 
     imgOrr.fillSprite(TFT_TRANSPARENT);
-    imgOrr.fillCircle(9, 9, 9, TFT_BLACK);
-    imgOrr.drawCircle(9 - x1, 9 - y1, i * 28, grey);
-    imgOrr.fillCircle(9, 9, 5, bodyColour[i]);
+    imgOrr.fillCircle(9, 9, 5, TFT_BLACK);
+    imgOrr.drawCircle(9 - x1, 9 - y1, i * 14, grey);
+    imgOrr.fillCircle(9, 9, 3, bodyColour[i]);
     imgOrr.pushSprite(sunX + x1 - 9, sunY + y1 - 9, TFT_TRANSPARENT);
 
     if (body[i] == BODY_EARTH)
@@ -429,17 +433,29 @@ int plot_planets(void)
       int xm = 0;
       int ym = 0;
 
-      getCoord(x1, y1, &xm, &ym, 15, 180 + ang.angle + mang.angle); // Get x1 ,y1
+      getCoord(x1, y1, &xm, &ym, 7, 180 + ang.angle + mang.angle); // Get x1 ,y1
 
       imgOrr.fillSprite(TFT_TRANSPARENT);
-      imgOrr.fillCircle(9, 9, 7, TFT_BLACK);
-      imgOrr.drawCircle(9 - xm, 9 - ym, i * 28, grey);
-      imgOrr.fillCircle(9, 9, 2, TFT_WHITE);
+      imgOrr.fillCircle(9, 9, 4, TFT_BLACK);
+      imgOrr.drawCircle(9 - xm, 9 - ym, i * 14, grey);
+      imgOrr.fillCircle(9, 9, 1, TFT_WHITE);
       imgOrr.pushSprite(sunX + xm - 9, sunY + ym - 9, TFT_TRANSPARENT);
     }
   }
 
   return 0;
+}
+
+void prepOrrery() {
+  tft.fillScreen(TFT_BLACK);
+  astro_time = Astronomy_MakeTime(2020, 10, 16, 19, 31, 0) ;
+  tft.fillCircle(sunX, sunY, 5, TFT_YELLOW); //10
+
+  // i initialised to 1 so Sun is skipped
+  for (int i = 1; i < sizeof(body) / sizeof(body[0]); ++i)
+  {
+    tft.drawCircle(sunX, sunY, i * 14, grey);
+  }
 }
 
 void prepDisplay() {
@@ -461,16 +477,20 @@ void doDisplay()
   String humstring = String(humSHT) + "%";
   String windstring = String(windspeed, 0) + "kph";
   String pm25instring = String(pm25in,0) + "g";
-  String upco2string = String(co2SCD,0) + "ppm";
+  String upco2string = String(co2SCD,0) + "p";
   String presstring = String(presBME,0) + "mb";
   String poolstring = String(temppool) + "°C";
 
-  String outtempstring = String(bridgetemp) + "°C";
-  String outdewstring = String(bridgehum) + "°C";
+  String outtempstring = String(bridgetemp,1) + "°C";
+  String outdewstring = String(bridgehum,1) + "°C";
   String winddirstring = windDirection(winddir);
   String pm25outstring = String(pm25out,0) + "g";
-  String downco2string = String(bridgeco2,0) + "ppm";
+  String downco2string = String(bridgeco2,0) + "p";
   String powerstring = String(kw) + "KW";
+  if (kw > 1.0) {
+    String powerstring = String(kw,1) + "KW";
+  }
+
 
   //String touchstring = String(t_x) + "," + String(t_y);
 
@@ -497,11 +517,24 @@ void doDisplay()
 }
 
 void doDisplay2(){
-
+  tft.setTextDatum(TR_DATUM);
+  tft.setTextFont(1);
+  tft.setCursor(115,237);
+  tft.print(titleLine);
+  tft.setCursor(115,247);
+  tft.print(ssid);
+  tft.setCursor(115,257);
+  tft.print(WiFi.localIP());
+  time_t rawtime;
+  struct tm* timeinfo;
+  time(&rawtime);
+  timeinfo = localtime(&rawtime);
   tft.setCursor(115,267);
+  tft.print(asctime(timeinfo));
+  tft.setCursor(115,277);  
   tft.print("My Temp: ");
   tft.print(temp);
-  tft.println(" C");
+  tft.print(" C");
   tft.setCursor(115,287);
   tft.print("My Hum: ");
   tft.print(hum);
@@ -509,17 +542,7 @@ void doDisplay2(){
 
 }
 
-void prepOrrery() {
-  tft.fillScreen(TFT_BLACK);
-  astro_time = Astronomy_MakeTime(2020, 10, 16, 19, 31, 0) ;
-  tft.fillCircle(sunX, sunY, 10, TFT_YELLOW);
 
-  // i initialised to 1 so Sun is skipped
-  for (int i = 1; i < sizeof(body) / sizeof(body[0]); ++i)
-  {
-    tft.drawCircle(sunX, sunY, i * 28, grey);
-  }
-}
 
 void doOrrery(){
   plot_planets();
@@ -567,7 +590,18 @@ void setup()
       } 
   tft.fillScreen(TFT_BLACK);
   tft.setCursor(10, 10);
-  tft.print("Connected!");
+  tft.println("Connected!");
+  tft.println(titleLine);
+  tft.println(ssid);
+  tft.println(WiFi.localIP());
+  time_t rawtime;
+  struct tm* timeinfo;
+  time(&rawtime);
+  timeinfo = localtime(&rawtime);
+  
+  tft.println(asctime(timeinfo));
+  delay(2000);
+  
   tft.setTextWrap(false); // Wrap on width
   img.setColorDepth(16); 
   img2.setColorDepth(16); 
@@ -616,12 +650,8 @@ void setup()
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
   Blynk.config(auth, IPAddress(192, 168, 50, 197), 8080);
   Blynk.connect();
-  struct tm timeinfo;
-  getLocalTime(&timeinfo);
-  hours = timeinfo.tm_hour;
-  mins = timeinfo.tm_min;
-  secs = timeinfo.tm_sec;
-  terminal.println("***SERVER STARTED***");
+
+  terminal.println(titleLine);
   terminal.print("Connected to ");
   terminal.println(ssid);
   terminal.print("IP address: ");
@@ -644,6 +674,7 @@ void setup()
 
   prepDisplay();
   doDisplay();
+  tft.setTextFont(1);
 }
 
 void loop()
@@ -677,6 +708,7 @@ void loop()
         if (brightness < 1) {brightness = 1;}
         if (brightness > 255) {brightness = 255;}
         analogWrite(LED_PIN,brightness);
+        Blynk.virtualWrite(V1,brightness);
       }
       if ((t_x > 137) && (t_y > 30) && (t_x < 205) && (t_y < 87)){ //BRIGHTNESS UP button
         delay(250);
@@ -684,6 +716,7 @@ void loop()
         if (brightness < 1) {brightness = 1;}
         if (brightness > 255) {brightness = 255;}
         analogWrite(LED_PIN,brightness);
+        Blynk.virtualWrite(V1,brightness);
       }
       if ((t_x > 79) && (t_y > 116) && (t_x < 157) && (t_y < 190)){ //ORRERY  button
         delay(500);
