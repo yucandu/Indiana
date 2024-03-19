@@ -18,19 +18,22 @@
 #include <AsyncElegantOTA.h>
 #include "time.h"
 
-#define VERSION 1.01
+#define VERSION 1.02
 
 String titleLine = "***INDIANA v" + String(VERSION) + "***";
 
 const char* ssid = "mikesnet";
 const char* password = "springchicken";
 
-#define AA_FONT_10 "YuGothicUI-Regular-10"
+/*#define AA_FONT_10 "YuGothicUI-Regular-10"
 #define AA_FONT_12 "YuGothicUI-Regular-12"
 #define AA_FONT_14 "YuGothicUI-Regular-14"
 #define AA_FONT_16 "YuGothicUI-Regular-16"
-#define AA_FONT_18 "YuGothicUI-Regular-18"
+#define AA_FONT_18 "YuGothicUI-Regular-18"*/
 #define AA_FONT_20 "YuGothicUI-Regular-20"
+#define AA_FONT_22 "NotoSans-Condensed-22"
+#define AA_FONT_24 "NotoSans-Condensed-24"
+#define AA_FONT_26 "NotoSans-Condensed-26"
 
 const char* ntpServer = "pool.ntp.org";
 const long gmtOffset_sec = -18000;  //Replace with your GMT offset (secs)
@@ -473,20 +476,20 @@ void doDisplay()
 
   //float pm25in, pm25out, bridgetemp, bridgehum, windspeed, winddir, windchill, windgust, humidex, bridgeco2, bridgeIrms, watts, kw, tempSHT, humSHT, co2SCD;
 
-  String tempstring = String(tempSHT) + "°C";
-  String humstring = String(humSHT) + "%";
+  String tempstring = String(tempSHT,1) + "°C";
+  String humstring = String(humSHT,1) + "%";
   String windstring = String(windspeed, 0) + "kph";
   String pm25instring = String(pm25in,0) + "g";
   String upco2string = String(co2SCD,0) + "p";
-  String presstring = String(presBME,0) + "mb";
-  String poolstring = String(temppool) + "°C";
+  String presstring = String(presBME,0) + "m";
+  String poolstring = String(temppool,1) + "°C";
 
   String outtempstring = String(bridgetemp,1) + "°C";
   String outdewstring = String(bridgehum,1) + "°C";
   String winddirstring = windDirection(winddir);
   String pm25outstring = String(pm25out,0) + "g";
   String downco2string = String(bridgeco2,0) + "p";
-  String powerstring = String(kw) + "KW";
+  String powerstring = String(watts,0) + "W";
   if (kw > 1.0) {
     String powerstring = String(kw,1) + "KW";
   }
@@ -607,12 +610,15 @@ void setup()
   img2.setColorDepth(16); 
 // ESP32 will crash if any of the fonts are missing
   bool font_missing = false;
-  if (SPIFFS.exists("/YuGothicUI-Regular-10.vlw")    == false) font_missing = true;
+  /*if (SPIFFS.exists("/YuGothicUI-Regular-10.vlw")    == false) font_missing = true;
   if (SPIFFS.exists("/YuGothicUI-Regular-12.vlw")    == false) font_missing = true;
   if (SPIFFS.exists("/YuGothicUI-Regular-14.vlw")    == false) font_missing = true;
   if (SPIFFS.exists("/YuGothicUI-Regular-16.vlw")    == false) font_missing = true;
-  if (SPIFFS.exists("/YuGothicUI-Regular-18.vlw")    == false) font_missing = true;
+  if (SPIFFS.exists("/YuGothicUI-Regular-18.vlw")    == false) font_missing = true;*/
   if (SPIFFS.exists("/YuGothicUI-Regular-20.vlw")    == false) font_missing = true;
+  if (SPIFFS.exists("/NotoSans-Condensed-22.vlw")    == false) font_missing = true;
+  if (SPIFFS.exists("/NotoSans-Condensed-24.vlw")    == false) font_missing = true;
+  if (SPIFFS.exists("/NotoSans-Condensed-26.vlw")    == false) font_missing = true;
   if (font_missing)
   {
     Serial.println("\r\nFont missing in SPIFFS, did you upload it?");
@@ -659,12 +665,12 @@ void setup()
   printLocalTime();
   terminal.flush();
   
-  img.loadFont(AA_FONT_20);
+  img.loadFont(AA_FONT_26);
   img.createSprite(73, 320);
   img.setTextDatum(TR_DATUM);     
   img.setTextColor(TFT_WHITE, TFT_BLACK, true); 
 
-  img2.loadFont(AA_FONT_20);
+  img2.loadFont(AA_FONT_26);
   img2.createSprite(73, 263);
   img2.setTextDatum(TR_DATUM);     
   img2.setTextColor(TFT_WHITE, TFT_BLACK, true); 
