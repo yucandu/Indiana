@@ -18,12 +18,13 @@
 #include <AsyncElegantOTA.h>
 #include "time.h"
 
-#define VERSION 1.02
+#define VERSION 1.03
 
 String titleLine = "***INDIANA v" + String(VERSION) + "***";
 
 const char* ssid = "mikesnet";
 const char* password = "springchicken";
+String powerstring = "0W";
 
 /*#define AA_FONT_10 "YuGothicUI-Regular-10"
 #define AA_FONT_12 "YuGothicUI-Regular-12"
@@ -393,14 +394,14 @@ void showTime(astro_time_t time)
     astro_status_t status;
     char text[TIME_TEXT_BYTES];
 
-    status = Astronomy_FormatTime(time, TIME_FORMAT_DAY, text, sizeof(text));
+    status = Astronomy_FormatTime(time, TIME_FORMAT_SECOND, text, sizeof(text));
     if (status != ASTRO_SUCCESS)
     {
         fprintf(stderr, "\nFATAL(PrintTime): status %d\n", status);
         exit(1);
     }
     
-    tft.drawString(text, 10, 10, 2);
+    tft.drawString(text, 15, 10, 2);
 }
 
 // =========================================================================
@@ -489,10 +490,9 @@ void doDisplay()
   String winddirstring = windDirection(winddir);
   String pm25outstring = String(pm25out,0) + "g";
   String downco2string = String(bridgeco2,0) + "p";
-  String powerstring = String(watts,0) + "W";
-  if (kw > 1.0) {
+ // if (watts < 1000) {String powerstring = String(watts,0) + "W";}
+
     String powerstring = String(kw,1) + "KW";
-  }
 
 
   //String touchstring = String(t_x) + "," + String(t_y);
@@ -583,7 +583,7 @@ void setup()
   tft.setTextFont(2);
   tft.setTextSize(1);
   tft.print("Connecting...");
-  tft.setCursor(10, 20);
+  tft.setCursor(15, 25);
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
@@ -592,17 +592,20 @@ void setup()
         tft.print(".");
       } 
   tft.fillScreen(TFT_BLACK);
-  tft.setCursor(10, 10);
-  tft.println("Connected!");
-  tft.println(titleLine);
-  tft.println(ssid);
-  tft.println(WiFi.localIP());
+  tft.setCursor(15, 10);
+  tft.print("Connected!");
+  tft.setCursor(15, 25);
+  tft.print(titleLine);
+  tft.setCursor(15, 40);
+  tft.print(ssid);
+  tft.setCursor(15, 65);
+  tft.print(WiFi.localIP());
   time_t rawtime;
   struct tm* timeinfo;
   time(&rawtime);
   timeinfo = localtime(&rawtime);
-  
-  tft.println(asctime(timeinfo));
+  tft.setCursor(15, 80);
+  tft.print(asctime(timeinfo));
   delay(2000);
   
   tft.setTextWrap(false); // Wrap on width
