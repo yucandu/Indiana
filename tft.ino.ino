@@ -1,4 +1,5 @@
 #include <TJpg_Decoder.h>
+#define USE_LINE_BUFFER  // Enable for faster rendering
 #define FS_NO_GLOBALS
 #include <FS.h>
 #ifdef ESP32
@@ -17,6 +18,15 @@
 #include <ESPAsyncWebServer.h>
 #include <AsyncElegantOTA.h>
 #include "time.h"
+
+TFT_eSPI tft = TFT_eSPI();         // Invoke custom library
+TFT_eSprite img = TFT_eSprite(&tft);
+TFT_eSprite img2 = TFT_eSprite(&tft);
+TFT_eSprite imgOrr = TFT_eSprite(&tft);  // Sprite class
+
+#include <HTTPClient.h>
+
+#include "support_functions.h"
 
 #define VERSION 1.03
 
@@ -48,10 +58,7 @@ AsyncWebServer server(80);
 
 WidgetTerminal terminal(V10);
 
-TFT_eSPI tft = TFT_eSPI();         // Invoke custom library
-TFT_eSprite img = TFT_eSprite(&tft);
-TFT_eSprite img2 = TFT_eSprite(&tft);
-TFT_eSprite imgOrr = TFT_eSprite(&tft);  // Sprite class
+
 
 #define sunX tft.width()/2
 #define sunY tft.height()/2
@@ -400,7 +407,7 @@ void showTime(astro_time_t time)
         fprintf(stderr, "\nFATAL(PrintTime): status %d\n", status);
         exit(1);
     }
-    
+    tft.setTextDatum(TL_DATUM);
     tft.drawString(text, 15, 10, 2);
 }
 
@@ -496,7 +503,7 @@ void doDisplay()
 
 
   //String touchstring = String(t_x) + "," + String(t_y);
-
+  tft.setTextDatum(TR_DATUM);
   img.fillSprite(TFT_BLACK);
   img.drawString(tempstring, 73, 21);
   img.drawString(humstring, 73, 62);
@@ -606,7 +613,11 @@ void setup()
   timeinfo = localtime(&rawtime);
   tft.setCursor(15, 80);
   tft.print(asctime(timeinfo));
-  delay(2000);
+
+  //setPngPosition(0, 0);
+  //load_png("https://i.imgur.com/EeCUlxr.png");
+
+  delay(3000);
   
   tft.setTextWrap(false); // Wrap on width
   img.setColorDepth(16); 
@@ -761,5 +772,6 @@ void loop()
   }
   delay(10); // UI debouncing
 }
+
 
 
