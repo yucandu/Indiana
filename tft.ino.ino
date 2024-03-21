@@ -7,7 +7,8 @@
 #endif
 #include "SPI.h"
 #include <TFT_eSPI.h>              // Hardware-specific library
-
+#include <stdio.h>
+#include "astronomy.h"
 
 #include <Wire.h>
 #include <Arduino.h>
@@ -19,16 +20,24 @@
 #include <AsyncElegantOTA.h>
 #include "time.h"
 
+#include "wbTetrisColors.h"
+#include <Ticker.h>
+
 TFT_eSPI tft = TFT_eSPI();         // Invoke custom library
 TFT_eSprite img = TFT_eSprite(&tft);
 TFT_eSprite img2 = TFT_eSprite(&tft);
 TFT_eSprite imgOrr = TFT_eSprite(&tft);  // Sprite class
 
+Ticker gameLooper;  // game state controller
+Ticker Refresher;   // display controller
+
+inline uint16_t swapcolor(uint16_t x) { return (x << 11) | (x & 0x07E0) | (x >> 11); }
+
 #include <HTTPClient.h>
 
 #include "support_functions.h"
 
-#define VERSION 1.03
+#define VERSION 1.10
 
 String titleLine = "***INDIANA v" + String(VERSION) + "***";
 
@@ -55,6 +64,9 @@ char auth[] = "qS5PQ8pvrbYzXdiA4I6uLEWYfeQrOcM4";
 
 AsyncWebServer server(80);
 
+int sfxc, sfxn;
+  uint16_t key;
+
 
 WidgetTerminal terminal(V10);
 
@@ -66,8 +78,7 @@ WidgetTerminal terminal(V10);
 uint16_t orb_inc;
 uint16_t planet_r;
 
-#include <stdio.h>
-#include "astronomy.h"
+
 #define TIME_TEXT_BYTES  25
 
 astro_time_t astro_time;
@@ -119,17 +130,8 @@ Adafruit_SHT31 sht31 = Adafruit_SHT31();
 #define STATUS_X 120 // Centred on this
 #define STATUS_Y 65
 
-// Create 15 keys for the keypad
-char keyLabel[15][5] = {"New", "Del", "Send", "1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "#" };
-uint16_t keyColor[15] = {TFT_RED, TFT_DARKGREY, TFT_DARKGREEN,
-                         TFT_BLUE, TFT_BLUE, TFT_BLUE,
-                         TFT_BLUE, TFT_BLUE, TFT_BLUE,
-                         TFT_BLUE, TFT_BLUE, TFT_BLUE,
-                         TFT_BLUE, TFT_BLUE, TFT_BLUE
-                        };
 
-// Invoke the TFT_eSPI button class and create all the button objects
-TFT_eSPI_Button key[15];
+
 
 // This next function will be called during decoding of the jpeg file to
 // render each block to the TFT.  If you use a different TFT library
@@ -237,6 +239,28 @@ int brightness = 127;
 BLYNK_WRITE(V1) {
   brightness = param.asInt();
   analogWrite(LED_PIN, brightness);
+}
+
+int upb, downb, rightb, leftb, buttonstate;
+
+BLYNK_WRITE(V2) {
+  upb = param.asInt();
+  key = 1;
+}
+
+BLYNK_WRITE(V3) {
+  rightb = param.asInt();
+  key = 2;
+}
+
+BLYNK_WRITE(V4) {
+  downb = param.asInt();
+  key = 3;
+}
+
+BLYNK_WRITE(V5) {
+  leftb = param.asInt();
+  key = 4;
 }
 
 float temppool, pm25in, pm25out, bridgetemp, bridgehum, windspeed, winddir, windchill, windgust, humidex, bridgeco2, bridgeIrms, watts, kw, tempSHT, humSHT, co2SCD, presBME;
@@ -563,6 +587,453 @@ void doOrrery(){
   astro_time = Astronomy_AddDays(astro_time, 0.25); // 0.25 day (6 hour) increment
 }
 
+
+
+char blk_t[28][4] = { // seven shapes
+  {0,10,20,30},{0,1,2,3},{0,10,20,30},{0,1,2,3},
+  {1, 10, 11, 12},{0,10,11,20},{0,1,2,11},{1,10,11,21},
+  {0, 1, 10, 11},{0,1,10,11},{0,1,10,11},{0,1,10,11},
+  {0,10,20, 21},{0,1,2,10},{0,1,11,21},{2,10,11,12},
+  {1,11,20,21},{0,10,11,12},{0,1,10,20},{0,1,2,12},
+  {0,1,11,12},{1,10,11,20},{0,1,11,12},{1,10,11,20},
+  {1,2,10,11},{0,10,11,21},{1,2,10,11},{0,10,11,21}
+};
+char board[20][10], offboard[20][10];
+uint16_t cx, cy, rot, smode, fall_time, fall_limit, stage_limit;
+uint16_t ctype, nctype, level, pts, pn, i, j, k, pos, ppx, ppy, last_key, cline;
+char levelspeed[12]={12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
+
+void ICACHE_FLASH_ATTR draw_preview()
+{
+  tft.fillRect(85, 35, 28, 28, TFT_BLACK);
+  for(i=0; i<4; i++) {
+    pos = blk_t[nctype*4][i];
+    ppy = pos/10;
+    ppx = pos%10;
+    tft.fillRect(85+ppx*7, 35+ppy*7, 6, 6, bcolor[nctype+1]);
+  }
+}
+
+void ICACHE_FLASH_ATTR update_score()
+{
+  tft.fillRect(85, 80, 50, 15, TFT_BLACK);
+  draw_number(cline, 85, 80, 1);
+  if (cline > 150) level = 9;
+  else if (cline > 120) level=8;
+  else if (cline > 100) level=7;
+  else if (cline > 80) level=6;
+  else if (cline > 50) level=5;
+  else if (cline > 25) level=4;
+  else if (cline > 15) level=3;
+  else if (cline > 10) level=2;
+  else if (cline > 5) level=1;
+  fall_limit = stage_limit = levelspeed[level];
+  tft.fillRect(85, 110, 50, 15, TFT_BLACK);
+  draw_number(level+1, 85, 110, 1);
+  tft.fillRect(85, 140, 50, 15, TFT_BLACK);
+  draw_number(pts, 85, 140, 1);
+}
+
+int ICACHE_FLASH_ATTR check_line()
+{
+  int pt;
+  for(i=19; i>0; i--) {
+    pt=0;
+    for(j=0; j<10; j++) if (board[i][j]!=0) pt++; else break;
+    if (pt==10) {
+      for(j=i; j>0; j--)
+        for(k=0; k<10; k++) board[j][k]=board[j-1][k];
+      return 1;
+    }
+  }
+  return 0;
+}
+
+void ICACHE_FLASH_ATTR bfall()
+{
+  for(i=0; i<4; i++) {
+    pos = (cy+1)*10 + cx + blk_t[ctype*4+rot][i];
+    ppy = pos/10;
+    ppx = pos%10;
+    if (pos < 200) { board[ppy-1][ppx]=0;
+    } else {
+      for(j=0; j<4; j++) {
+        pos = (cy)*10 + cx + blk_t[ctype*4+rot][j];
+        ppy = pos/10;
+        ppx = pos%10;
+        board[ppy][ppx]=ctype+1;
+      }
+      pn=0;
+      while(check_line()) { // check all stacked line
+        cline++;
+        update_score();
+        pts+=10*(2^pn);
+        pn++;
+      }
+      if (pn) { sfxn=5; sfxc=0; }
+      else { sfxn=2; sfxc=0; }
+      ctype=nctype;
+      nctype=rand()%7;
+      pts+=10;
+      cx = 4;
+      cy = 0;
+      rot=rand()%4;
+      for(j=0; j<4; j++) {
+        pos = (cy)*10 + cx + blk_t[ctype*4+rot][j];
+        ppy = pos/10;
+        ppx = pos%10;
+        board[ppy][ppx]=ctype+1;
+      }
+      draw_preview();
+      return;
+    }
+  }
+  cy++;
+  for(i=0; i<4; i++) {
+    pos = (cy)*10 + cx + blk_t[ctype*4+rot][i];
+    ppy = pos/10;
+    ppx = pos%10;
+    if (board[ppy][ppx]!=0) {
+      for(j=0; j<4; j++) {
+        pos = (cy-1)*10 + cx + blk_t[ctype*4+rot][j];
+        ppy = pos/10;
+        ppx = pos%10;
+        board[ppy][ppx]=ctype+1;
+      }
+      if (cy==1) {
+        smode=2;
+        tft.fillRect(2, 55, 77, 27, TFT_RED);
+        tft.fillRect(5, 58, 71, 21, TFT_BLACK);
+        tft.setTextColor(TFT_WHITE);
+        draw_string("Game Over", 14, 65, 1);
+        sfxn=6; sfxc=0;
+        return;
+      }
+      pn=0;
+      while(check_line()) {
+        cline++;
+        update_score();
+        pts+=10*(2^pn);
+        pn++;
+      }
+      if (pn) { sfxn=5; sfxc=0; }
+      else { sfxn=2; sfxc=0; }
+      ctype=nctype;
+      nctype=rand()%7;
+      pts+=10;
+      cx = 4;
+      cy = 0;
+      rot=rand()%4;
+      for(j=0; j<4; j++) {
+        pos = (cy)*10 + cx + blk_t[ctype*4+rot][j];
+        ppy = pos/10;
+        ppx = pos%10;
+        board[ppy][ppx]=ctype+1;
+      }
+      draw_preview();
+      return;
+    }
+  }
+  for(i=0; i<4; i++) {
+    pos = (cy)*10 + cx + blk_t[ctype*4+rot][i];
+    ppy = pos/10;
+    ppx = pos%10;
+    board[ppy][ppx]=ctype+1;
+  }
+}
+
+void ICACHE_FLASH_ATTR check_left()
+{
+  for(i=0; i<4; i++) {
+    pos = cy*10 + cx-1 + blk_t[ctype*4+rot][i];
+    ppx = pos%10;
+    if (ppx>cx+4) return; //left bound
+  }
+  for(i=0; i<4; i++) {
+    pos = cy*10 + cx + blk_t[ctype*4+rot][i];
+    ppy = pos/10;
+    ppx = pos%10;
+    board[ppy][ppx]=0; // clear block
+  }
+  for(i=0; i<4; i++) {
+    pos = cy*10 + cx-1 + blk_t[ctype*4+rot][i];
+    ppy = pos/10;
+    ppx = pos%10;
+    if (board[ppy][ppx]!=0) {
+      for(j=0; j<4; j++) {
+        pos = cy*10 + cx + blk_t[ctype*4+rot][j];
+        ppy = pos/10;
+        ppx = pos%10;
+        board[ppy][ppx]=ctype+1;
+      }
+      return;
+    }
+  }
+  cx--;
+  for(i=0; i<4; i++) {
+    pos = cy*10 + cx + blk_t[ctype*4+rot][i];
+    ppy = pos/10;
+    ppx = pos%10;
+    board[ppy][ppx]=ctype+1;
+  }
+}
+
+void ICACHE_FLASH_ATTR check_right()
+{
+  for(i=0; i<4; i++) {
+    pos = (cy)*10 + cx+1 + blk_t[ctype*4+rot][i];
+    ppy = pos/10;
+    ppx = pos%10;
+    if (ppx>cx-1) {
+      board[ppy][ppx-1]=0;
+    } else {
+      for(j=0; j<4; j++) {
+        pos = (cy)*10 + cx + blk_t[ctype*4+rot][j];
+        ppy = pos/10;
+        ppx = pos%10;
+        board[ppy][ppx]=ctype+1;
+      }
+      return;
+    }
+  }
+  for(i=0; i<4; i++) {
+    pos = (cy)*10 + cx+1 + blk_t[ctype*4+rot][i];
+    ppy = pos/10;
+    ppx = pos%10;
+    if (board[ppy][ppx]!=0) {
+      for(j=0; j<4; j++) {
+        pos = (cy)*10 + cx + blk_t[ctype*4+rot][j];
+        ppy = pos/10;
+        ppx = pos%10;
+        board[ppy][ppx]=ctype+1;
+      }
+      return;
+    }
+  }
+  cx++;
+  for(i=0; i<4; i++) {
+    pos = (cy)*10 + cx + blk_t[ctype*4+rot][i];
+    ppy = pos/10;
+    ppx = pos%10;
+    board[ppy][ppx]=ctype+1;
+  }
+}
+
+int ICACHE_FLASH_ATTR check_rotate()
+{
+  for(i=0; i<4; i++) {
+    pos = cy*10 + cx + blk_t[ctype*4+rot][i];
+    ppy = pos/10;
+    ppx = pos%10;
+    if (pos<200) {
+      if (board[ppy][ppx]!=0) return -2;
+      if (ppx < cx) {
+        cx--;
+        return -1;
+      }
+      if (ppx > cx+4) {
+        cx++;
+        return -1;
+      }
+    }
+  }
+  return 0;
+}
+ 
+uint16_t color1, color2, color3, color4, sa_count;
+
+void splash_animation()
+{
+  color4 = color3;
+  color3 = color2;
+  color2 = color1;
+  color1 = bcolor[rand()%7+1]; // scrolling effect
+  tft.fillRect(49, 65, 14, 14, color1);
+  tft.fillRect(49, 80, 14, 14, color2);
+  tft.fillRect(49, 95, 14, 14, color3);
+  tft.fillRect(64, 95, 14, 14, color4);
+}
+
+void draw_number(uint16_t num, uint8_t x, uint8_t y, uint8_t size)
+{
+  tft.setCursor(x, y);
+  tft.setTextSize(size);
+  tft.print(num);
+}
+
+void draw_string(char *str, uint8_t x, uint8_t y, uint8_t size)
+{
+  tft.setCursor(x, y);
+  tft.setTextSize(size);
+  tft.print(str);
+}
+
+void draw_splash()
+{
+  tft.fillRect(0, 0, 128, 160, TFT_BLACK);
+  tft.setTextColor(TFT_WHITE);
+  draw_string("WiFiBoy for Arduino", 7, 0, 1);
+  tft.setTextColor(TFT_YELLOW);
+  draw_string("Tetris", 10, 25, 3);
+  tft.setTextColor(TFT_GREEN);
+  //draw_string("one", 1, 132, 1);
+  //draw_string("two", 104, 132, 1);
+  draw_string("Play", 1, 144, 1);
+  //draw_string("players", 82, 144, 1);
+  tft.fillRect(49, 65, 14, 14, color1=TFT_RED);
+  tft.fillRect(49, 80, 14, 14, color2=TFT_YELLOW);
+  tft.fillRect(49, 95, 14, 14, color3=TFT_BLUE);
+  tft.fillRect(64, 95, 14, 14, color4=TFT_GREEN);
+  sa_count = 0;
+}
+
+void draw_board()
+{
+  for(i=0; i<20; i++)
+    for(j=0; j<10; j++)
+      if (offboard[i][j]!=board[i][j]) // dirty rectangle check
+        tft.fillRect(j*8+1,i*8,7,7, bcolor[offboard[i][j]=board[i][j]]);
+}
+
+void refresh_cb()
+{
+  switch(smode) {
+    case 0: // for splash
+      sa_count++;
+      if (sa_count>15) {
+        splash_animation();
+        sa_count=0;
+      }
+      break;
+    case 1: draw_board(); break; // update board (dirty-rectangle argorithm)
+    case 2: break; // end of game
+    default: break;
+  }
+}
+
+void clear_board()
+{
+  for(i=0; i<20; i++)
+    for(j=0; j<10; j++) board[i][j]=0;
+}
+
+void gameloop_cb()
+{
+
+  int ret;
+
+  switch(smode) {
+    case 0: // game menu
+      switch(key) {
+        case 2: 
+        case 1: break;
+        case 0: // game start
+          smode=1;
+          tft.fillRect(0, 0, 128, 160, TFT_BLACK);
+          tft.drawFastHLine(0,159,80,TFT_RED);
+          tft.drawFastVLine(0,0,160,TFT_RED);
+          tft.drawFastVLine(80,0,160,TFT_RED);
+          tft.setTextColor(TFT_WHITE);
+          draw_string("lines", 84, 65, 1);
+          draw_string("level", 84, 95, 1);
+          draw_string("score", 84, 125, 1);
+          tft.setTextColor(TFT_YELLOW);
+          draw_string("Tetris", 85, 0, 1);
+          draw_string("Game", 105, 12, 1);
+          cline=0;
+          level=0;
+          pts=0;
+          fall_limit = stage_limit = levelspeed[level];
+          cx=4; cy=0; rot=rand()%4;
+          ctype=rand()%7;
+          nctype=rand()%7;
+          for(i=0; i<4; i++) {
+            pos = (cy)*10 + cx + blk_t[ctype*4+rot][i];
+            ppy = pos/10;
+            ppx = pos%10;
+            board[ppy][ppx]=ctype+1; // draw blocks
+          }
+          last_key=0;
+          draw_preview();
+          update_score();
+          break;
+        case 3:
+          break;
+      }
+      break;
+    case 1: // game playing
+      switch(key) {
+        case 2: last_key=1; break;
+        case 1: last_key=2; break;
+        case 0:
+          fall_limit=1;
+          last_key=4;
+          break;
+        case 3: last_key=3; break;
+        case 4: // release all keys
+          switch (last_key) {
+            case 1: check_left(); last_key=0; fall_limit=stage_limit; break;
+            case 2: check_right(); last_key=0; fall_limit=stage_limit; break;
+            case 3:
+              for(i=0; i<4; i++) {
+                pos = cy*10 + cx + blk_t[ctype*4+rot][i]; 
+                ppy = pos/10;
+                ppx = pos%10;
+                board[ppy][ppx]=0; // clean blocks
+              }
+              rot++;
+              if (rot>3) rot=0;
+              while(1) {
+                ret = check_rotate();
+                if (ret==-2) {
+                  rot++;
+                  if (rot>3) rot=0;
+                } else if (ret==0) break; // pick next legal rotation
+              }
+              for(i=0; i<4; i++) {
+                pos = cy*10 + cx + blk_t[ctype*4+rot][i];
+                ppy = pos/10;
+                ppx = pos%10;
+                board[ppy][ppx]=ctype+1; // draw blocks
+              }
+              last_key=0;
+              break;
+            case 4:
+              fall_limit=stage_limit;
+              last_key=0;
+              break;
+            default: break;
+          }
+          break;
+      }
+      fall_time++;
+      if (fall_time > fall_limit) {
+        bfall();
+        fall_time=0;
+      }
+      break;
+    case 2: // end of game
+      switch(key) {
+        case 0:
+        case 1:
+        case 2: break;
+        case 3:
+          smode=0;
+          clear_board();
+          draw_splash();
+          break;
+      }
+      break;
+  }
+}
+
+
+
+void doTetris(){
+  gameloop_cb();
+  refresh_cb();
+}
+
 void setup()
 {
 
@@ -601,12 +1072,16 @@ void setup()
   tft.fillScreen(TFT_BLACK);
   tft.setCursor(15, 10);
   tft.print("Connected!");
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  delay(500);
   tft.setCursor(15, 25);
   tft.print(titleLine);
   tft.setCursor(15, 40);
   tft.print(ssid);
   tft.setCursor(15, 65);
   tft.print(WiFi.localIP());
+  
+  
   time_t rawtime;
   struct tm* timeinfo;
   time(&rawtime);
@@ -667,7 +1142,7 @@ void setup()
   AsyncElegantOTA.begin(&server);    // Start ElegantOTA
   server.begin();
   Serial.println("HTTP server started");
-  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  
   Blynk.config(auth, IPAddress(192, 168, 50, 197), 8080);
   Blynk.connect();
 
@@ -695,6 +1170,7 @@ void setup()
   prepDisplay();
   doDisplay();
   tft.setTextFont(1);
+  for(i=0; i<8; i++) bcolor[i] = swapcolor(bcolor[i]);
 }
 
 void loop()
@@ -723,27 +1199,31 @@ void loop()
         doDisplay();
       }
       if ((t_x > 30) && (t_y > 30) && (t_x < 100) && (t_y < 87)){ //BRIGHTNESS DOWN button
-        delay(250);
         brightness -= 16;
         if (brightness < 1) {brightness = 1;}
         if (brightness > 255) {brightness = 255;}
         analogWrite(LED_PIN,brightness);
         Blynk.virtualWrite(V1,brightness);
+        delay(250);
       }
       if ((t_x > 137) && (t_y > 30) && (t_x < 205) && (t_y < 87)){ //BRIGHTNESS UP button
-        delay(250);
         brightness += 16;
         if (brightness < 1) {brightness = 1;}
         if (brightness > 255) {brightness = 255;}
         analogWrite(LED_PIN,brightness);
         Blynk.virtualWrite(V1,brightness);
+        delay(250);
       }
-      if ((t_x > 79) && (t_y > 116) && (t_x < 157) && (t_y < 190)){ //ORRERY  button
-        delay(500);
+      if ((t_x > 31) && (t_y > 121) && (t_x < 102) && (t_y < 182)){ //ORRERY  button
         page = 3;
-        
         prepOrrery();
         doOrrery();
+        delay(300);
+      }
+      if ((t_x > 137) && (t_y > 121) && (t_x < 205) && (t_y < 182)){ //TETRIS  button
+        page = 4;
+        //preTetris();
+        doTetris();
       }
     }
     if (page == 1) { //MAIN display
@@ -772,6 +1252,5 @@ void loop()
   }
   delay(10); // UI debouncing
 }
-
 
 
