@@ -8,11 +8,12 @@
 #include "SPI.h"
 #include <TFT_eSPI.h>  // Hardware-specific library
 
- #define MATRIX_WIDTH                64   // Single panel of 64 pixel width
+ #define MATRIX_WIDTH                192   // Single panel of 64 pixel width
 
- #define MATRIX_HEIGHT               32   // CHANGE THIS VALUE to 64 IF USING 64px HIGH panel(s) with E PIN
+ #define MATRIX_HEIGHT               96
+ #define FACTOR                       3
 
- #define CHAIN_LENGTH                1   // Number of modules chained together, i.e. 4 panels chained result in virtualmatrix 64x4=256 px long
+ #define CHAIN_LENGTH                3   // Number of modules chained together, i.e. 4 panels chained result in virtualmatrix 64x4=256 px long
 
 
 #include <Wire.h>
@@ -25,7 +26,7 @@
 #include <AsyncElegantOTA.h>
 #include "time.h"
 
-#include "GameDrawer.h"
+
 #include "constants.h"
 #include "ApiHandler.h"
 #include "./util.hpp"
@@ -161,17 +162,17 @@ void GameDrawer::drawLayout(Game* game) {
   int16_t upperLeftX, upperLeftY;
   uint16_t width, height;
 
-  drawBox(0, 0, game->getAwayTeam(), TEAM_BG_COLORS.find(game->getAwayTeamId())->second, TEAMS_TEXT_COLORS.find(game->getAwayTeamId())->second);
+  drawBox(15, 15, game->getAwayTeam(), TEAM_BG_COLORS.find(game->getAwayTeamId())->second, TEAMS_TEXT_COLORS.find(game->getAwayTeamId())->second);
   drawInning(game);
-  drawBox(MATRIX_WIDTH - 21, 0, game->getHomeTeam(), TEAM_BG_COLORS.find(game->getHomeTeamId())->second, TEAMS_TEXT_COLORS.find(game->getHomeTeamId())->second);
+  drawBox(MATRIX_WIDTH - 21, 15, game->getHomeTeam(), TEAM_BG_COLORS.find(game->getHomeTeamId())->second, TEAMS_TEXT_COLORS.find(game->getHomeTeamId())->second);
 }
 
 void GameDrawer::topInningTriangle() {
-  tft.fillTriangle(24, 7, 32, 7, 28, 3, tft.color565(255, 255, 255));
+  tft.fillTriangle(24*FACTOR, 7*FACTOR, 32*FACTOR, 7*FACTOR, 28*FACTOR, 3*FACTOR, tft.color565(255, 255, 255));
 }
 
 void GameDrawer::bottomInningTriangle() {
-  tft.fillTriangle(24, 3, 32, 3, 28, 7, tft.color565(255, 255, 255));
+  tft.fillTriangle(24*FACTOR, 3*FACTOR, 32*FACTOR, 3*FACTOR, 28*FACTOR, 7*FACTOR, tft.color565(255, 255, 255));
 }
 
 void GameDrawer::drawInning(Game* game) {
@@ -180,7 +181,7 @@ void GameDrawer::drawInning(Game* game) {
   } else {
     bottomInningTriangle();
   }
-  tft.setCursor(35, 2);
+  tft.setCursor(35*FACTOR, 2*FACTOR);
   tft.print(game->getCurrentInning());
 }
 
@@ -189,10 +190,10 @@ void GameDrawer::drawBox(int16_t x, int16_t y, String text, uint16_t bg_color, u
   uint16_t width, height;
 
   //tft.getTextBounds(text.c_str(), x + BOX_PADDING, y + BOX_PADDING, &upperLeftX, &upperLeftY, &width, &height);
-  upperLeftX = x;
-  upperLeftY = y;
+  upperLeftX = x+2;
+  upperLeftY = y+2;
   width = tft.textWidth(text.c_str());
-  height = 9;
+  height = 17;
   tft.setCursor(upperLeftX, upperLeftY);
 
   // Draw Away team box - should always start at 0,0
@@ -204,9 +205,9 @@ void GameDrawer::drawBox(int16_t x, int16_t y, String text, uint16_t bg_color, u
 }
 
 void GameDrawer::drawScores(Game* game) {
-  drawBox(6, 12, String(game->getAwayTeamScore()), COLORS::BLACK, COLORS::WHITE);
+  drawBox(6*FACTOR, 13*FACTOR, String(game->getAwayTeamScore()), COLORS::BLACK, COLORS::WHITE);
 
-  drawBox(MATRIX_WIDTH - 15, 12, String(game->getHomeTeamScore()), COLORS::BLACK, COLORS::WHITE);
+  drawBox(MATRIX_WIDTH - 15, 13*FACTOR, String(game->getHomeTeamScore()), COLORS::BLACK, COLORS::WHITE);
 }
 
 void GameDrawer::drawLoading() {
@@ -684,6 +685,7 @@ void prepOrrery() {
 
 void prepMLB() {
   tft.fillScreen(TFT_BLACK);
+  tft.setTextSize(2);
   tft.setTextColor(0xFFFF, 0x0000);
     JsonObject schedule = apiHandler->getTeamScheduleToday(TEAM_ID::TORONTO_BLUE_JAYS);
     Game* game = new Game(schedule["dates"][0]["games"][0].as<JsonObject>());
@@ -697,6 +699,7 @@ void prepDisplay() {
 
 void prepDisplay2() {
   tft.fillScreen(TFT_BLACK);
+  tft.setTextSize(1);
   TJpgDec.drawFsJpg(0, 0, "/pg2.jpg");
 }
 
