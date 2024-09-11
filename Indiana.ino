@@ -453,7 +453,7 @@ void printLocalTime() {
   terminal.flush();
 }
 
-int brightness = 127;
+int brightness = 32;
 
 BLYNK_WRITE(V1) {
   brightness = param.asInt();
@@ -791,10 +791,12 @@ void doMLB() {
   }
 }
 
+bool isSleeping = false;
+
 void setup() {
 
   pinMode(LED_PIN, OUTPUT);
-  analogWrite(LED_PIN, 127);
+  analogWrite(LED_PIN, brightness);
 
   Serial.begin(115200);
   Serial.println("\n\n Testing TJpg_Decoder library");
@@ -1009,6 +1011,29 @@ void loop() {
   every(60000) {
     temp = sht31.readTemperature();
     hum = sht31.readHumidity();
+        struct tm timeinfo;
+  getLocalTime(&timeinfo);
+  hours = timeinfo.tm_hour;
+  mins = timeinfo.tm_min;
+  secs = timeinfo.tm_sec;
+    if ((hours == 18) && (!isSleeping)){
+      for(int i=brightness; i<255; i++)
+      {
+        analogWrite(LED_PIN, i);
+        delay(40);
+      }
+      analogWrite(LED_PIN, 32);
+      isSleeping = true;
+    }
+      if ((hours == 7) && (isSleeping)){
+      for (int i=255; i>brightness; i--)
+        {
+          analogWrite(LED_PIN, i);
+          delay(40);
+        }
+        analogWrite(LED_PIN, brightness);
+      isSleeping = false;
+    }
   }
   delay(10);  // UI debouncing
 }
