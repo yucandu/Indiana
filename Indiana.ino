@@ -1026,16 +1026,16 @@ void loop() {
   hours = timeinfo.tm_hour;
   mins = timeinfo.tm_min;
   secs = timeinfo.tm_sec;
-    if ((hours == 18) && (!isSleeping)){
+    if ((hours == 17) && (!isSleeping)){
       for(int i=brightness; i<255; i++)
       {
         analogWrite(LED_PIN, i);
         delay(40);
       }
-      analogWrite(LED_PIN, 32);
+      analogWrite(LED_PIN, 1);
       isSleeping = true;
     }
-      if ((hours == 7) && (isSleeping)){
+      if ((hours == 8) && (isSleeping)){
       for (int i=255; i>brightness; i--)
         {
           analogWrite(LED_PIN, i);
