@@ -493,10 +493,10 @@ BLYNK_WRITE(V66) {
 BLYNK_WRITE(V67) {
   pm25out = param.asFloat();
 }
-BLYNK_WRITE(V68) {
+BLYNK_WRITE(V78) {
   windspeed = param.asFloat();
 }
-BLYNK_WRITE(V69) {
+BLYNK_WRITE(V79) {
   winddir = param.asFloat();
 }
 
