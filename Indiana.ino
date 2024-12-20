@@ -460,10 +460,14 @@ BLYNK_WRITE(V1) {
   analogWrite(LED_PIN, brightness);
 }
 
-float temppool, pm25in, pm25out, bridgetemp, bridgehum, windspeed, winddir, windchill, windgust, humidex, bridgeco2, bridgeIrms, watts, kw, tempSHT, humSHT, co2SCD, presBME, neotemp;
+float temppool, pm25in, pm25out, bridgetemp, bridgehum, windspeed, winddir, windchill, windgust, humidex, bridgeco2, bridgeIrms, watts, kw, tempSHT, humSHT, co2SCD, presBME, neotemp, jojutemp, temptodraw;
 
 BLYNK_WRITE(V41) {
   neotemp = param.asFloat();
+}
+
+BLYNK_WRITE(V42) {
+  jojutemp = param.asFloat();
 }
 
 BLYNK_WRITE(V71) {
@@ -720,10 +724,8 @@ void doDisplay() {
   String poolstring = String(temppool, 1) + "°C";
 
   String outtempstring;
-
-  if ((bridgetemp > neotemp) && (neotemp != 0))
-  {outtempstring = String(neotemp, 1) + "°C";}
-  else {outtempstring = String(bridgetemp, 1) + "°C";}
+  temptodraw = min(bridgetemp, min(neotemp, jojutemp));
+  outtempstring = String(temptodraw, 1) + "°C";
 
    
   String outdewstring = String(bridgehum, 1) + "°C";
