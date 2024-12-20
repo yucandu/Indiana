@@ -23,7 +23,7 @@
 #include <WiFi.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
-#include <AsyncElegantOTA.h>
+#include <ArduinoOTA.h>
 #include "time.h"
 
 
@@ -280,7 +280,7 @@ int hours, mins, secs;
 
 char auth[] = "qS5PQ8pvrbYzXdiA4I6uLEWYfeQrOcM4";
 
-AsyncWebServer server(80);
+
 
 
 WidgetTerminal terminal(V10);
@@ -453,7 +453,7 @@ void printLocalTime() {
   terminal.flush();
 }
 
-int brightness = 32;
+int brightness = 1;
 
 BLYNK_WRITE(V1) {
   brightness = param.asInt();
@@ -724,7 +724,8 @@ void doDisplay() {
   String poolstring = String(temppool, 1) + "°C";
 
   String outtempstring;
-  temptodraw = min(bridgetemp, min(neotemp, jojutemp));
+  float min1 = min(neotemp, jojutemp);
+  temptodraw = min(bridgetemp, min1);
   outtempstring = String(temptodraw, 1) + "°C";
 
    
@@ -856,13 +857,9 @@ void setup() {
   tft.setCursor(15, 80);
   tft.print(asctime(timeinfo));
   tft.setCursor(15, 95);
-  
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest* request) {
-    request->send(200, "text/plain", "Hi! I am Indiana.");
-  });
+      ArduinoOTA.setHostname("Indiana");
+      ArduinoOTA.begin();  
 
-  AsyncElegantOTA.begin(&server);  // Start ElegantOTA
-  server.begin();
   tft.print("OTA at /update.");
   
   tft.setCursor(15, 110);
@@ -871,7 +868,7 @@ void setup() {
   //setPngPosition(0, 0);
   //load_png("https://i.imgur.com/EeCUlxr.png");
 
-  while(!tft.getTouch(&t_x, &t_y)){}
+  //while(!tft.getTouch(&t_x, &t_y)){}
   touch_calibrate();  
   tft.setTextWrap(false);  // Wrap on width
   img.setColorDepth(16);
@@ -945,6 +942,7 @@ void setup() {
 
 void loop() {
   Blynk.run();
+  ArduinoOTA.handle();  
   bool pressed = tft.getTouch(&t_x, &t_y);
   if (pressed) {
     tft.fillSmoothCircle(t_x, t_y, 4, TFT_YELLOW, TFT_BLACK);
