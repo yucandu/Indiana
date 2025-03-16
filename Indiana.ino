@@ -2,18 +2,11 @@
 #define USE_LINE_BUFFER  // Enable for faster rendering
 #define FS_NO_GLOBALS
 #include <FS.h>
-#ifdef ESP32
-#include "SPIFFS.h"  // ESP32 only
-#endif
+#include <LittleFS.h>
 #include "SPI.h"
 #include <TFT_eSPI.h>  // Hardware-specific library
 
- #define MATRIX_WIDTH                192   // Single panel of 64 pixel width
-
- #define MATRIX_HEIGHT               96
- #define FACTOR                       3
-
- #define CHAIN_LENGTH                3   // Number of modules chained together, i.e. 4 panels chained result in virtualmatrix 64x4=256 px long
+#include <ArduinoOTA.h>
 
 
 #include <Wire.h>
@@ -22,238 +15,19 @@
 #include <BlynkSimpleEsp32.h>
 #include <WiFi.h>
 #include <AsyncTCP.h>
-#include <ESPAsyncWebServer.h>
-#include <ArduinoOTA.h>
+#include <WiFi.h>
+
 #include "time.h"
 
 
-#include "constants.h"
-#include "ApiHandler.h"
-#include "./util.hpp"
-
-
-unsigned long time_counter = 0;
-ApiHandler* apiHandler;
-
-//Define a score struct
-struct Score {
-  int home;
-  int away;
-};
-
 TFT_eSPI tft = TFT_eSPI();  // Invoke custom library
-
-Score currentScore;
-
-HTTPClient http;
-DynamicJsonDocument doc(JSON_BUFFER_SIZE);
-
-class Game {
-private:
-  String homeTeam;
-  int homeTeamId;
-  String awayTeam;
-  int awayTeamId;
-  int homeTeamScore;
-  int awayTeamScore;
-  int currentInning;
-  bool topOfInning;
-  bool firstBaseOccupied;
-  bool secondBaseOccupied;
-  bool thirdBaseOccupied;
-
-  /* data */
-public:
-  Game(JsonObject game);
-  ~Game();
-  String getHomeTeam() {
-    return this->homeTeam;
-  };
-  int getHomeTeamId() {
-    return this->homeTeamId;
-  };
-  String getAwayTeam() {
-    return this->awayTeam;
-  };
-  int getAwayTeamId() {
-    return this->awayTeamId;
-  };
-  int getHomeTeamScore() {
-    return this->homeTeamScore;
-  };
-  int getAwayTeamScore() {
-    return this->awayTeamScore;
-  };
-  int getCurrentInning() {
-    return this->currentInning;
-  };
-  bool isTopOfInning() {
-    return this->topOfInning;
-  };
-  bool isFirstBaseOccupied() {
-    return this->firstBaseOccupied;
-  };
-  bool isSecondBaseOccupied() {
-    return this->secondBaseOccupied;
-  };
-  bool isThirdBaseOccupied() {
-    return this->thirdBaseOccupied;
-  };
-};
-
-Game::Game(JsonObject game) {
-  this->homeTeam = game["teams"]["home"]["team"]["abbreviation"].as<String>();
-  this->homeTeamId = game["teams"]["home"]["team"]["id"].as<int>();
-  this->awayTeam = game["teams"]["away"]["team"]["abbreviation"].as<String>();
-  this->awayTeamId = game["teams"]["away"]["team"]["id"].as<int>();
-  this->homeTeamScore = game["linescore"]["teams"]["home"]["runs"].as<int>();
-  this->awayTeamScore = game["linescore"]["teams"]["away"]["runs"].as<int>();
-  this->currentInning = game["linescore"]["currentInning"].as<int>();
-  this->topOfInning = game["linescore"]["isTopInning"].as<bool>();
-  this->firstBaseOccupied = game["linescore"]["offense"]["first"].as<bool>();
-  this->secondBaseOccupied = game["linescore"]["offense"]["second"].as<bool>();
-  this->thirdBaseOccupied = game["linescore"]["offense"]["third"].as<bool>();
-
-  Serial.println(game["linescore"]["currentInning"].as<int>());
-}
-
-Game::~Game() {
-}
-
-
-
-
-class GameDrawer {
-private:
-  void drawLayout(Game* game);
-  void drawScores(Game* game);
-  void drawBox(int16_t x, int16_t y, String text, uint16_t bg_color, uint16_t fg_color);
-  void drawInning(Game* game);
-  void topInningTriangle();
-  void bottomInningTriangle();
-  void drawBases(Game* game);
-  void drawBase(int16_t x, int16_t y, bool occupied);
-public:
-  GameDrawer();
-  ~GameDrawer();
-  void drawGame(Game* game);
-  void drawLoading();
-};
-
-GameDrawer gameDrawer;
-
-
-GameDrawer::GameDrawer(/* args */) {
-}
-
-GameDrawer::~GameDrawer() {
-}
-
-void GameDrawer::drawGame(Game* game) {
-  drawLayout(game);
-  drawScores(game);
-  drawBases(game);
-}
-
-void GameDrawer::drawLayout(Game* game) {
-  tft.fillScreen(TFT_BLACK);
-  tft.setTextColor(tft.color565(255, 255, 255));
-
-  int16_t upperLeftX, upperLeftY;
-  uint16_t width, height;
-
-  drawBox(15, 15, game->getAwayTeam(), TEAM_BG_COLORS.find(game->getAwayTeamId())->second, TEAMS_TEXT_COLORS.find(game->getAwayTeamId())->second);
-  drawInning(game);
-  drawBox(MATRIX_WIDTH - 21, 15, game->getHomeTeam(), TEAM_BG_COLORS.find(game->getHomeTeamId())->second, TEAMS_TEXT_COLORS.find(game->getHomeTeamId())->second);
-}
-
-void GameDrawer::topInningTriangle() {
-  tft.fillTriangle(24*FACTOR, 7*FACTOR, 32*FACTOR, 7*FACTOR, 28*FACTOR, 3*FACTOR, tft.color565(255, 255, 255));
-}
-
-void GameDrawer::bottomInningTriangle() {
-  tft.fillTriangle(24*FACTOR, 3*FACTOR, 32*FACTOR, 3*FACTOR, 28*FACTOR, 7*FACTOR, tft.color565(255, 255, 255));
-}
-
-void GameDrawer::drawInning(Game* game) {
-  if (game->isTopOfInning()) {
-    topInningTriangle();
-  } else {
-    bottomInningTriangle();
-  }
-  tft.setCursor(35*FACTOR, 2*FACTOR);
-  tft.print(game->getCurrentInning());
-}
-
-void GameDrawer::drawBox(int16_t x, int16_t y, String text, uint16_t bg_color, uint16_t fg_color) {
-  int16_t upperLeftX, upperLeftY;
-  uint16_t width, height;
-
-  //tft.getTextBounds(text.c_str(), x + BOX_PADDING, y + BOX_PADDING, &upperLeftX, &upperLeftY, &width, &height);
-  upperLeftX = x+2;
-  upperLeftY = y+2;
-  width = tft.textWidth(text.c_str());
-  height = 17;
-  tft.setCursor(upperLeftX, upperLeftY);
-
-  // Draw Away team box - should always start at 0,0
-  tft.fillRect(x, y, width + 2 * BOX_PADDING - 1, height + 2 * BOX_PADDING - 1, bg_color);
-  tft.drawRect(x, y, width + 2 * BOX_PADDING - 1, height + 2 * BOX_PADDING - 1, fg_color);
-  tft.setTextColor(fg_color);
-  tft.print(text);
-  tft.setTextColor(COLORS::WHITE);
-}
-
-void GameDrawer::drawScores(Game* game) {
-  drawBox(6*FACTOR, 13*FACTOR, String(game->getAwayTeamScore()), COLORS::BLACK, COLORS::WHITE);
-
-  drawBox(MATRIX_WIDTH - 15, 13*FACTOR, String(game->getHomeTeamScore()), COLORS::BLACK, COLORS::WHITE);
-}
-
-void GameDrawer::drawLoading() {
-  tft.fillScreen(TFT_BLACK);
-  tft.setTextColor(tft.color565(255, 255, 255));
-  tft.setCursor(0, 0);
-  tft.print("Loading...");
-}
-
-/**
- * @brief Draws a diamond base using two triangles
- * @param x X coordinate of the top verex of the base
- * @param y Y coordinate of the top verex of the base
- * @param occupied if the base is occupied
-*/
-void GameDrawer::drawBase(int16_t x, int16_t y, bool occupied) {
-  if (occupied) {
-    tft.fillTriangle(x, y, x - BASE_SIDE_LENGTH + 1, y + BASE_SIDE_LENGTH - 1, x, y + (2 * (BASE_SIDE_LENGTH - 1)), COLORS::YELLOW);
-    tft.fillTriangle(x, y, x + BASE_SIDE_LENGTH - 1, y + BASE_SIDE_LENGTH - 1, x, y + (2 * (BASE_SIDE_LENGTH - 1)), COLORS::YELLOW);
-  } else {
-    tft.drawTriangle(x, y, x - BASE_SIDE_LENGTH + 1, y + BASE_SIDE_LENGTH - 1, x, y + (2 * (BASE_SIDE_LENGTH - 1)), COLORS::YELLOW);
-    tft.drawTriangle(x, y, x + BASE_SIDE_LENGTH - 1, y + BASE_SIDE_LENGTH - 1, x, y + (2 * (BASE_SIDE_LENGTH - 1)), COLORS::YELLOW);
-
-    // Remove line in the middle of the base
-    tft.drawLine(x, y + 1, x, y + (2 * (BASE_SIDE_LENGTH - 1)) - 1, COLORS::BLACK);
-  }
-}
-
-void GameDrawer::drawBases(Game* game) {
-  drawBase(BASES_TOP_X + BASE_SIDE_LENGTH + 1, BASES_TOP_Y + BASE_SIDE_LENGTH + 1, game->isFirstBaseOccupied());
-  drawBase(BASES_TOP_X, BASES_TOP_Y, game->isSecondBaseOccupied());
-  drawBase(BASES_TOP_X - BASE_SIDE_LENGTH - 1, BASES_TOP_Y + BASE_SIDE_LENGTH + 1, game->isThirdBaseOccupied());
-}
-
-
-
-
 
 
 TFT_eSprite img = TFT_eSprite(&tft);
 TFT_eSprite img2 = TFT_eSprite(&tft);
 TFT_eSprite imgOrr = TFT_eSprite(&tft);  // Sprite class
 
-#include <HTTPClient.h>
 
-#include "support_functions.h"
 
 #define VERSION 1.04
 
@@ -285,34 +59,8 @@ char auth[] = "qS5PQ8pvrbYzXdiA4I6uLEWYfeQrOcM4";
 
 WidgetTerminal terminal(V10);
 
-
-
-#define sunX tft.width() / 2
-#define sunY tft.height() / 2
-
-uint16_t orb_inc;
-uint16_t planet_r;
-
-#include <stdio.h>
-#include "astronomy.h"
-#define TIME_TEXT_BYTES 25
-
-astro_time_t astro_time;
-
-uint16_t grey;
-
-static const astro_body_t body[] = {
-  BODY_SUN, BODY_MERCURY, BODY_VENUS, BODY_EARTH, BODY_MARS,
-  BODY_JUPITER, BODY_SATURN, BODY_URANUS, BODY_NEPTUNE
-};
-
-static const uint16_t bodyColour[] = {
-  TFT_YELLOW, TFT_DARKGREY, TFT_ORANGE, TFT_BLUE, TFT_RED,
-  TFT_GOLD, TFT_BROWN, TFT_DARKCYAN, TFT_CYAN
-};
-
 //TFT_eSprite img3 = TFT_eSprite(&tft);
-#define LED_PIN 32
+#define LED_PIN 8
 
 int page = 1;
 uint16_t t_x = 0, t_y = 0;        // To store the touch coordinates
@@ -322,11 +70,6 @@ uint16_t oldt_x = 0, oldt_y = 0;  // To store the touch coordinates
 #define every(interval) \
   static uint32_t __every__##interval = millis(); \
   if (millis() - __every__##interval >= interval && (__every__##interval = millis()))
-
-bool enableHeater = false;
-uint8_t loopCnt = 0;
-
-Adafruit_SHT31 sht31 = Adafruit_SHT31();
 
 #define CALIBRATION_FILE "/TouchCalData1"
 
@@ -346,13 +89,6 @@ Adafruit_SHT31 sht31 = Adafruit_SHT31();
 #define STATUS_X 120  // Centred on this
 #define STATUS_Y 65
 
-// Create 15 keys for the keypad
-char keyLabel[15][5] = { "New", "Del", "Send", "1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "#" };
-uint16_t keyColor[15] = { TFT_RED, TFT_DARKGREY, TFT_DARKGREEN,
-                          TFT_BLUE, TFT_BLUE, TFT_BLUE,
-                          TFT_BLUE, TFT_BLUE, TFT_BLUE,
-                          TFT_BLUE, TFT_BLUE, TFT_BLUE,
-                          TFT_BLUE, TFT_BLUE, TFT_BLUE };
 
 // Invoke the TFT_eSPI button class and create all the button objects
 TFT_eSPI_Button key[15];
@@ -383,19 +119,19 @@ void touch_calibrate() {
   uint8_t calDataOK = 0;
 
   // check file system exists
-  if (!SPIFFS.begin()) {
+  if (!LittleFS.begin()) {
     Serial.println("formatting file system");
-    SPIFFS.format();
-    SPIFFS.begin();
+    LittleFS.format();
+    LittleFS.begin();
   }
 
   // check if calibration file exists and size is correct
-  if (SPIFFS.exists(CALIBRATION_FILE)) {
+  if (LittleFS.exists(CALIBRATION_FILE)) {
     if (REPEAT_CAL) {
       // Delete if we want to re-calibrate
-      SPIFFS.remove(CALIBRATION_FILE);
+      LittleFS.remove(CALIBRATION_FILE);
     } else {
-      File f = SPIFFS.open(CALIBRATION_FILE, "r");
+      File f = LittleFS.open(CALIBRATION_FILE, "r");
       if (f) {
         if (f.readBytes((char*)calData, 14) == 14)
           calDataOK = 1;
@@ -431,7 +167,7 @@ void touch_calibrate() {
     tft.println("Calibration complete!");
 
     // store data
-    File f = SPIFFS.open(CALIBRATION_FILE, "w");
+    File f = LittleFS.open(CALIBRATION_FILE, "w");
     if (f) {
       f.write((const unsigned char*)calData, 14);
       f.close();
@@ -453,7 +189,7 @@ void printLocalTime() {
   terminal.flush();
 }
 
-int brightness = 1;
+int brightness = 32;
 
 BLYNK_WRITE(V1) {
   brightness = param.asInt();
@@ -609,106 +345,16 @@ String windDirection(int temp_wind_deg)  //Source http://snowfence.umn.edu/Compo
   }
 }
 
-// =========================================================================
-// Get coordinates of end of a vector, pivot at x,y, length r, angle a
-// =========================================================================
-// Coordinates are returned to caller via the xp and yp pointers
-#define DEG2RAD 0.0174532925
-void getCoord(int x, int y, int* xp, int* yp, int r, float a) {
-  float sx1 = cos(-a * DEG2RAD);
-  float sy1 = sin(-a * DEG2RAD);
-  *xp = sx1 * r + x;
-  *yp = sy1 * r + y;
-}
-
-// =========================================================================
-// Convert astronomical time to UTC and display
-// =========================================================================
-void showTime(astro_time_t time) {
-  astro_status_t status;
-  char text[TIME_TEXT_BYTES];
-
-  status = Astronomy_FormatTime(time, TIME_FORMAT_SECOND, text, sizeof(text));
-  if (status != ASTRO_SUCCESS) {
-    fprintf(stderr, "\nFATAL(PrintTime): status %d\n", status);
-    exit(1);
-  }
-  tft.setTextDatum(TL_DATUM);
-  tft.drawString(text, 15, 10, 2);
-}
-
-// =========================================================================
-// Plot planet positions as an Orrery
-// =========================================================================
-int plot_planets(void) {
-  astro_angle_result_t ang;
-
-  int i;
-  int num_bodies = sizeof(body) / sizeof(body[0]);
-
-  // i initialised to 1 so Sun is skipped
-  for (i = 1; i < num_bodies; ++i) {
-    ang = Astronomy_EclipticLongitude(body[i], astro_time);
-
-    int x1 = 0;  // getCoord() will update these
-    int y1 = 0;
-
-    getCoord(0, 0, &x1, &y1, i * 14, ang.angle);  // Get x1 ,y1
-
-    imgOrr.fillSprite(TFT_TRANSPARENT);
-    imgOrr.fillCircle(9, 9, 5, TFT_BLACK);
-    imgOrr.drawCircle(9 - x1, 9 - y1, i * 14, grey);
-    imgOrr.fillCircle(9, 9, 3, bodyColour[i]);
-    imgOrr.pushSprite(sunX + x1 - 9, sunY + y1 - 9, TFT_TRANSPARENT);
-
-    if (body[i] == BODY_EARTH) {
-      astro_angle_result_t mang = Astronomy_LongitudeFromSun(BODY_MOON, astro_time);
-
-      int xm = 0;
-      int ym = 0;
-
-      getCoord(x1, y1, &xm, &ym, 7, 180 + ang.angle + mang.angle);  // Get x1 ,y1
-
-      imgOrr.fillSprite(TFT_TRANSPARENT);
-      imgOrr.fillCircle(9, 9, 4, TFT_BLACK);
-      imgOrr.drawCircle(9 - xm, 9 - ym, i * 14, grey);
-      imgOrr.fillCircle(9, 9, 1, TFT_WHITE);
-      imgOrr.pushSprite(sunX + xm - 9, sunY + ym - 9, TFT_TRANSPARENT);
-    }
-  }
-
-  return 0;
-}
-
-void prepOrrery() {
-  tft.fillScreen(TFT_BLACK);
-  astro_time = Astronomy_MakeTime(2020, 10, 16, 19, 31, 0);
-  tft.fillCircle(sunX, sunY, 5, TFT_YELLOW);  //10
-
-  // i initialised to 1 so Sun is skipped
-  for (int i = 1; i < sizeof(body) / sizeof(body[0]); ++i) {
-    tft.drawCircle(sunX, sunY, i * 14, grey);
-  }
-}
-
-void prepMLB() {
-  tft.fillScreen(TFT_BLACK);
-  tft.setTextSize(2);
-  tft.setTextColor(0xFFFF, 0x0000);
-    JsonObject schedule = apiHandler->getTeamScheduleToday(TEAM_ID::TORONTO_BLUE_JAYS);
-    Game* game = new Game(schedule["dates"][0]["games"][0].as<JsonObject>());
-  gameDrawer.drawGame(game);
-}
 
 void prepDisplay() {
   tft.fillScreen(TFT_BLACK);
-  TJpgDec.drawFsJpg(0, 0, "/ui.jpg");
+  TJpgDec.drawFsJpg(0, 0, "/ui.jpg", LittleFS);
 }
 
 void prepDisplay2() {
   tft.fillScreen(TFT_BLACK);
   tft.setTextSize(1);
-  TJpgDec.drawFsJpg(0, 0, "/pg2.jpg");
+  TJpgDec.drawFsJpg(0, 0, "/pg2.jpg", LittleFS);
 }
 
 void doDisplay() {
@@ -724,8 +370,7 @@ void doDisplay() {
   String poolstring = String(temppool, 1) + "°C";
 
   String outtempstring;
-  float min1 = min(neotemp, jojutemp);
-  temptodraw = min(bridgetemp, min1);
+  temptodraw = min(bridgetemp, min(neotemp, jojutemp));
   outtempstring = String(temptodraw, 1) + "°C";
 
    
@@ -786,24 +431,6 @@ void doDisplay2() {
 }
 
 
-
-void doOrrery() {
-  plot_planets();
-  showTime(astro_time);
-
-  // Add time increment (more than 0.6 days will lead to stray pixel on screen
-  // due to the way previous object images are erased)
-  astro_time = Astronomy_AddDays(astro_time, 0.25);  // 0.25 day (6 hour) increment
-}
-
-void doMLB() {
-  every(30000) {
-    JsonObject schedule = apiHandler->getTeamScheduleToday(TEAM_ID::TORONTO_BLUE_JAYS);
-    Game* game = new Game(schedule["dates"][0]["games"][0].as<JsonObject>());
-    gameDrawer.drawGame(game);
-  }
-}
-
 bool isSleeping = false;
 
 void setup() {
@@ -813,13 +440,9 @@ void setup() {
 
   Serial.begin(115200);
   Serial.println("\n\n Testing TJpg_Decoder library");
-  Wire.begin(26, 25);
-  // Initialise SPIFFS
-  if (!SPIFFS.begin()) {
-    Serial.println("SPIFFS initialisation failed!");
-    while (1) yield();  // Stay here twiddling thumbs waiting
-  }
-  Serial.println("\r\nInitialisation done.");
+
+  LittleFS.begin();
+
 
   // Initialise the TFT
   tft.begin();
@@ -836,6 +459,7 @@ void setup() {
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);
   while (WiFi.status() != WL_CONNECTED) {
     delay(250);
     tft.print(".");
@@ -857,9 +481,8 @@ void setup() {
   tft.setCursor(15, 80);
   tft.print(asctime(timeinfo));
   tft.setCursor(15, 95);
-      ArduinoOTA.setHostname("Indiana");
-      ArduinoOTA.begin();  
-
+  ArduinoOTA.setHostname("Indiana");
+  ArduinoOTA.begin();
   tft.print("OTA at /update.");
   
   tft.setCursor(15, 110);
@@ -869,23 +492,23 @@ void setup() {
   //load_png("https://i.imgur.com/EeCUlxr.png");
 
   //while(!tft.getTouch(&t_x, &t_y)){}
-  touch_calibrate();  
+  //touch_calibrate();  
   tft.setTextWrap(false);  // Wrap on width
   img.setColorDepth(16);
   img2.setColorDepth(16);
   // ESP32 will crash if any of the fonts are missing
   bool font_missing = false;
-  /*if (SPIFFS.exists("/YuGothicUI-Regular-10.vlw")    == false) font_missing = true;
-  if (SPIFFS.exists("/YuGothicUI-Regular-12.vlw")    == false) font_missing = true;
-  if (SPIFFS.exists("/YuGothicUI-Regular-14.vlw")    == false) font_missing = true;
-  if (SPIFFS.exists("/YuGothicUI-Regular-16.vlw")    == false) font_missing = true;
-  if (SPIFFS.exists("/YuGothicUI-Regular-18.vlw")    == false) font_missing = true;*/
-  if (SPIFFS.exists("/YuGothicUI-Regular-20.vlw") == false) font_missing = true;
-  if (SPIFFS.exists("/NotoSans-Condensed-22.vlw") == false) font_missing = true;
-  if (SPIFFS.exists("/NotoSans-Condensed-24.vlw") == false) font_missing = true;
-  if (SPIFFS.exists("/NotoSans-Condensed-26.vlw") == false) font_missing = true;
+  /*if (LittleFS.exists("/YuGothicUI-Regular-10.vlw")    == false) font_missing = true;
+  if (LittleFS.exists("/YuGothicUI-Regular-12.vlw")    == false) font_missing = true;
+  if (LittleFS.exists("/YuGothicUI-Regular-14.vlw")    == false) font_missing = true;
+  if (LittleFS.exists("/YuGothicUI-Regular-16.vlw")    == false) font_missing = true;
+  if (LittleFS.exists("/YuGothicUI-Regular-18.vlw")    == false) font_missing = true;*/
+  if (LittleFS.exists("/YuGothicUI-Regular-20.vlw") == false) font_missing = true;
+  if (LittleFS.exists("/NotoSans-Condensed-22.vlw") == false) font_missing = true;
+  if (LittleFS.exists("/NotoSans-Condensed-24.vlw") == false) font_missing = true;
+  if (LittleFS.exists("/NotoSans-Condensed-26.vlw") == false) font_missing = true;
   if (font_missing) {
-    Serial.println("\r\nFont missing in SPIFFS, did you upload it?");
+    Serial.println("\r\nFont missing in LittleFS, did you upload it?");
     tft.print("ERROR Fonts missing.");
     while (1) yield();
   }
@@ -895,16 +518,6 @@ void setup() {
   // The decoder must be given the exact name of the rendering function above
   TJpgDec.setCallback(tft_output);
 
-
-
-  Serial.println("SHT31 test");
-  if (!sht31.begin(0x44)) {  // Set to 0x45 for alternate i2c addr
-    Serial.println("Couldn't find SHT31");
-  } else {
-    Serial.println("Found SHT31");
-  }
-  temp = sht31.readTemperature();
-  hum = sht31.readHumidity();
 
   //uint16_t t_x = 0, t_y = 0; // To store the touch coordinates
 
@@ -931,20 +544,19 @@ void setup() {
   img2.setTextDatum(TR_DATUM);
   img2.setTextColor(TFT_WHITE, TFT_BLACK, true);
 
-  imgOrr.createSprite(19, 19);
-  grey = tft.color565(30, 30, 30);
+
 
   prepDisplay();
   doDisplay();
   tft.setTextFont(1);
-  apiHandler = new ApiHandler(&http, &doc);
+
 }
 
 void loop() {
   Blynk.run();
-  ArduinoOTA.handle();  
-  bool pressed = tft.getTouch(&t_x, &t_y);
-  if (pressed) {
+  ArduinoOTA.handle();
+  //bool pressed = tft.getTouch(&t_x, &t_y);
+  /*if (pressed) {
     tft.fillSmoothCircle(t_x, t_y, 4, TFT_YELLOW, TFT_BLACK);
     every(250) {
       Serial.print(t_x);
@@ -987,16 +599,10 @@ void loop() {
         Blynk.virtualWrite(V1, brightness);
       }
       if ((t_x > 31) && (t_y > 121) && (t_x < 102) && (t_y < 182)) {  //ORRERY  button
-        page = 3;
-        prepOrrery();
-        doOrrery();
-        delay(300);
+
       }
       if ((t_x > 137) && (t_y > 121) && (t_x < 205) && (t_y < 182)) {  //MLB button
-        page = 4;
-        prepMLB();
-        doMLB();
-        delay(300);
+
       }
     }
     if (page == 1) {                                                   //MAIN display
@@ -1007,7 +613,7 @@ void loop() {
         doDisplay2();
       }
     }
-  }
+  }*/
 
   // Pressed will be set true is there is a valid touch on the screen
 
@@ -1016,11 +622,10 @@ void loop() {
     if (page == 1) { doDisplay(); }
     if (page == 2) { doDisplay2(); }
   }
-  if (page == 3) { doOrrery(); }
+
 
   every(60000) {
-    temp = sht31.readTemperature();
-    hum = sht31.readHumidity();
+
         struct tm timeinfo;
   getLocalTime(&timeinfo);
   hours = timeinfo.tm_hour;
