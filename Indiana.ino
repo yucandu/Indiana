@@ -27,7 +27,12 @@ TFT_eSprite img = TFT_eSprite(&tft);
 TFT_eSprite img2 = TFT_eSprite(&tft);
 TFT_eSprite imgOrr = TFT_eSprite(&tft);  // Sprite class
 
-
+bool autobright = true;         // Flag to enable/disable auto brightness
+int ldr_pin = 0;              // Analog pin for light sensor
+int ldr_read = 0;              // Raw light sensor reading
+int newldr = 0;                // Processed brightness value
+int previous_brightness = -1;   // Previous brightness value for hysteresis
+int hysteresis_threshold = 5;   // Minimum change required to update brightness
 
 #define VERSION 1.04
 
@@ -110,7 +115,57 @@ bool tft_output(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t* bitmap) 
   return 1;
 }
 
-
+void drawMeasurementGrid() {
+  tft.fillScreen(TFT_BLACK);
+  
+  // Draw 5-pixel markers along edges
+  for(int x = 0; x < tft.width(); x += 5) {
+    // Top and bottom edges
+    if(x < 50 || x > tft.width()-50) {  // Only first and last 50 pixels
+      // Top edge
+      tft.drawLine(x, 0, x, 3, TFT_WHITE);
+      // Bottom edge  
+      tft.drawLine(x, tft.height()-3, x, tft.height()-1, TFT_WHITE);
+      
+      // Add numbers every 10 pixels
+      if(x % 10 == 0) {
+        tft.setTextColor(TFT_GREEN);
+        tft.setTextSize(1);
+        // Top numbers
+        tft.setCursor(x-3, 5);
+        tft.print(x);
+        // Bottom numbers
+        tft.setCursor(x-3, tft.height()-12);
+        tft.print(x);
+      }
+    }
+  }
+  
+  // Left and right edges
+  for(int y = 0; y < tft.height(); y += 5) {
+    if(y < 50 || y > tft.height()-50) {  // Only first and last 50 pixels
+      // Left edge
+      tft.drawLine(0, y, 3, y, TFT_WHITE);
+      // Right edge
+      tft.drawLine(tft.width()-3, y, tft.width()-1, y, TFT_WHITE);
+      
+      // Add numbers every 10 pixels
+      if(y % 10 == 0) {
+        tft.setTextColor(TFT_GREEN);
+        tft.setTextSize(1);
+        // Left side numbers
+        tft.setCursor(5, y-3);
+        tft.print(y);
+        // Right side numbers
+        tft.setCursor(tft.width()-25, y-3);
+        tft.print(y);
+      }
+    }
+  }
+  
+  // Draw thin red border at absolute edges
+  tft.drawRect(0, 0, tft.width(), tft.height(), TFT_RED);
+}
 
 //------------------------------------------------------------------------------------------
 
@@ -161,7 +216,7 @@ void touch_calibrate() {
       tft.println("Set REPEAT_CAL to false to stop this running again!");
     }
 
-    tft.calibrateTouch(calData, TFT_MAGENTA, TFT_BLACK, 15);
+    tft.calibrateTouch(calData, TFT_MAGENTA, TFT_BLACK, 35);
 
     tft.setTextColor(TFT_GREEN, TFT_BLACK);
     tft.println("Calibration complete!");
@@ -189,7 +244,7 @@ void printLocalTime() {
   terminal.flush();
 }
 
-int brightness = 32;
+int brightness = 1;
 
 BLYNK_WRITE(V1) {
   brightness = param.asInt();
@@ -348,13 +403,13 @@ String windDirection(int temp_wind_deg)  //Source http://snowfence.umn.edu/Compo
 
 void prepDisplay() {
   tft.fillScreen(TFT_BLACK);
-  TJpgDec.drawFsJpg(0, 0, "/ui.jpg", LittleFS);
+  TJpgDec.drawFsJpg(0, -10, "/ui.jpg", LittleFS);
 }
 
 void prepDisplay2() {
   tft.fillScreen(TFT_BLACK);
   tft.setTextSize(1);
-  TJpgDec.drawFsJpg(0, 0, "/pg2.jpg", LittleFS);
+  TJpgDec.drawFsJpg(0, -10, "/pg2.jpg", LittleFS);
 }
 
 void doDisplay() {
@@ -386,22 +441,22 @@ void doDisplay() {
   //String touchstring = String(t_x) + "," + String(t_y);
   tft.setTextDatum(TR_DATUM);
   img.fillSprite(TFT_BLACK);
-  img.drawString(tempstring, 73, 21);
-  img.drawString(humstring, 73, 62);
-  img.drawString(windstring, 73, 104);
-  img.drawString(pm25instring, 73, 146);
-  img.drawString(upco2string, 73, 192);
-  img.drawString(presstring, 73, 231);
-  img.drawString(poolstring, 73, 277);
+  img.drawString(tempstring, 73, 11);
+  img.drawString(humstring, 73, 52);
+  img.drawString(windstring, 73, 94); 
+  img.drawString(pm25instring, 73, 136);
+  img.drawString(upco2string, 73, 182);
+  img.drawString(presstring, 73, 221);
+  img.drawString(poolstring, 73, 267);
   img.pushSprite(46, 0);
 
   img2.fillSprite(TFT_BLACK);
-  img2.drawString(outtempstring, 73, 21);
-  img2.drawString(outdewstring, 73, 62);
-  img2.drawString(winddirstring, 73, 104);
-  img2.drawString(pm25outstring, 73, 146);
-  img2.drawString(downco2string, 73, 192);
-  img2.drawString(powerstring, 73, 231);
+  img2.drawString(outtempstring, 73, 11);
+  img2.drawString(outdewstring, 73, 52);
+  img2.drawString(winddirstring, 73, 94);
+  img2.drawString(pm25outstring, 73, 136);
+  img2.drawString(downco2string, 73, 182);
+  img2.drawString(powerstring, 73, 221);
   img2.pushSprite(155, 0);
 }
 
@@ -446,7 +501,10 @@ void setup() {
 
   // Initialise the TFT
   tft.begin();
-
+  tft.fillScreen(TFT_BLACK);
+  tft.setRotation(2);
+  //tft.setViewport(8, 0, tft.width()-16, tft.height() - 26, true);
+  
   tft.setTextColor(0xFFFF, 0x0000);
   tft.fillScreen(TFT_BLACK);
   tft.setCursor(10, 10);
@@ -490,9 +548,9 @@ void setup() {
 
   //setPngPosition(0, 0);
   //load_png("https://i.imgur.com/EeCUlxr.png");
-
-  //while(!tft.getTouch(&t_x, &t_y)){}
-  //touch_calibrate();  
+  //drawMeasurementGrid();
+  while(!tft.getTouch(&t_x, &t_y)){}
+  touch_calibrate();  
   tft.setTextWrap(false);  // Wrap on width
   img.setColorDepth(16);
   img2.setColorDepth(16);
@@ -534,13 +592,13 @@ void setup() {
   printLocalTime();
   terminal.flush();
 
-  img.loadFont(AA_FONT_26);
+  img.loadFont(AA_FONT_26, LittleFS);
   img.createSprite(73, 320);
   img.setTextDatum(TR_DATUM);
   img.setTextColor(TFT_WHITE, TFT_BLACK, true);
 
-  img2.loadFont(AA_FONT_26);
-  img2.createSprite(73, 263);
+  img2.loadFont(AA_FONT_26, LittleFS);
+  img2.createSprite(73, 253);
   img2.setTextDatum(TR_DATUM);
   img2.setTextColor(TFT_WHITE, TFT_BLACK, true);
 
@@ -549,14 +607,14 @@ void setup() {
   prepDisplay();
   doDisplay();
   tft.setTextFont(1);
-
+  pinMode(ldr_pin, INPUT);
 }
 
 void loop() {
   Blynk.run();
   ArduinoOTA.handle();
-  //bool pressed = tft.getTouch(&t_x, &t_y);
-  /*if (pressed) {
+  bool pressed = tft.getTouch(&t_x, &t_y);
+  if (pressed) {
     tft.fillSmoothCircle(t_x, t_y, 4, TFT_YELLOW, TFT_BLACK);
     every(250) {
       Serial.print(t_x);
@@ -613,7 +671,7 @@ void loop() {
         doDisplay2();
       }
     }
-  }*/
+  }
 
   // Pressed will be set true is there is a valid touch on the screen
 
@@ -624,6 +682,27 @@ void loop() {
   }
 
 
+
+  every(5000){
+    if (autobright) {
+
+      ldr_read = analogRead(ldr_pin);
+      newldr = map(ldr_read, 0, 4096, 0, 255);
+      // Apply non-linear scaling for indoor brightness adjustment
+      float scale = newldr / 255.0;
+      newldr = (int)(pow(scale, 0.45) * 255);  // 0.75 gamma boosts mid-range brightness
+
+      // Apply hysteresis to prevent flickering
+      if (previous_brightness == -1 || abs(newldr - previous_brightness) > hysteresis_threshold) {
+          previous_brightness = newldr;
+          newldr += brightness;
+          if (newldr < 1) { newldr = 1; }
+          if (newldr > 255) { newldr = 255; }
+          analogWrite(LED_PIN, newldr);
+      }
+    }
+  }
+
   every(60000) {
 
         struct tm timeinfo;
@@ -631,7 +710,7 @@ void loop() {
   hours = timeinfo.tm_hour;
   mins = timeinfo.tm_min;
   secs = timeinfo.tm_sec;
-    if ((hours == 17) && (!isSleeping)){
+    /*if ((hours == 17) && (!isSleeping)){
       for(int i=brightness; i<255; i++)
       {
         analogWrite(LED_PIN, i);
@@ -648,7 +727,7 @@ void loop() {
         }
         analogWrite(LED_PIN, brightness);
       isSleeping = false;
-    }
+    }*/
   }
   delay(10);  // UI debouncing
 }
