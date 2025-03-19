@@ -212,12 +212,12 @@
 
 
 
-#define TFT_MISO 33
-#define TFT_MOSI 23
-#define TFT_SCLK 18
-#define TFT_CS   15  // Chip select control pin
-#define TFT_DC    2  // Data Command control pin
-#define TFT_RST  -1  // Set TFT_RST to -1 if display RESET is connected to ESP32 board RST
+#define TFT_MISO 5
+#define TFT_MOSI 6
+#define TFT_SCLK 4
+#define TFT_CS   7  // Chip select control pin
+#define TFT_DC   20  // Data Command control pin
+#define TFT_RST  21  // Set TFT_RST to -1 if display RESET is connected to ESP32 board RST
 //#define TFT_RST   4  // Reset pin (could connect to RST pin)
 
 // For ESP32 Dev board (only tested with GC9A01 display)
@@ -230,7 +230,7 @@
 //#define TFT_RST  33  // Reset pin (could connect to Arduino RESET pin)
 //#define TFT_BL   22  // LED back-light
 
-#define TOUCH_CS 17     // Chip select pin (T_CS) of touch screen
+#define TOUCH_CS 3     // Chip select pin (T_CS) of touch screen
 
 //#define TFT_WR 22    // Write strobe for modified Raspberry Pi TFT only
 
