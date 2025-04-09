@@ -37,7 +37,7 @@ int hysteresis_threshold = 5;   // Minimum change required to update brightness
 #define VERSION 1.04
 
 String titleLine = "***INDIANA v" + String(VERSION) + "***";
-
+unsigned long reconnectTime;
 const char* ssid = "mikesnet";
 const char* password = "springchicken";
 String powerstring = "0W";
@@ -244,7 +244,7 @@ void printLocalTime() {
   terminal.flush();
 }
 
-int brightness = 1;
+int brightness = 32;
 
 BLYNK_WRITE(V1) {
   brightness = param.asInt();
@@ -549,7 +549,7 @@ void setup() {
   //setPngPosition(0, 0);
   //load_png("https://i.imgur.com/EeCUlxr.png");
   //drawMeasurementGrid();
-  while(!tft.getTouch(&t_x, &t_y)){}
+  while((!tft.getTouch(&t_x, &t_y)) && (millis() < 15000)){delay(1);}
   touch_calibrate();  
   tft.setTextWrap(false);  // Wrap on width
   img.setColorDepth(16);
@@ -611,8 +611,16 @@ void setup() {
 }
 
 void loop() {
-  Blynk.run();
-  ArduinoOTA.handle();
+      if (WiFi.status() == WL_CONNECTED) {Blynk.run();   ArduinoOTA.handle();}  //don't do Blynk unless wifi
+      else { //if no wifi, try to reconnect
+        if (millis() - reconnectTime > 30000) {
+              WiFi.disconnect();
+              WiFi.reconnect();
+              reconnectTime = millis();
+        }
+
+      } 
+
   bool pressed = tft.getTouch(&t_x, &t_y);
   if (pressed) {
     tft.fillSmoothCircle(t_x, t_y, 4, TFT_YELLOW, TFT_BLACK);
